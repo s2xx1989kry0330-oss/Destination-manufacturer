@@ -426,30 +426,12 @@ footer.tabbar{
 <script>
 const { jsPDF } = window.jspdf;
 
-// ---------- 日本語フォント（PDFの文字化け対策） ----------
-let jpFontBase64 = null;
-async function ensureJpFont(){
-  if(jpFontBase64) return jpFontBase64;
-  const res = await fetch('NotoSansJP-Regular.ttf');
-  const buf = await res.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let binary = '';
-  const chunkSize = 0x8000;
-  for(let i=0;i<bytes.length;i+=chunkSize){
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i+chunkSize));
-  }
-  jpFontBase64 = btoa(binary);
-  return jpFontBase64;
-}
-function registerJpFont(doc){
-  doc.addFileToVFS('NotoSansJP-Regular.ttf', jpFontBase64);
-  doc.addFont('NotoSansJP-Regular.ttf', 'NotoSansJP', 'normal');
-  doc.setFont('NotoSansJP');
-}
+// ---------- PDF保存（キャンバスに描画→画像としてPDFへ貼り付け） ----------
+// jsPDFへ日本語フォントを直接埋め込む方式は、グリフ数の多い日本語フォントで
+// 内部処理が失敗することがあるため使わない。
+// 代わりに、スマホ自身が持っている日本語フォントでcanvasに描画し、
+// その画像をPDFに貼り付ける（文字化けの心配がなく、失敗もしにくい）。
 
-// ホーム画面追加(standalone)のiOSではdoc.save()の直接ダウンロードが
-// 何も起きずに失敗することがあるため、新しいタブでPDFを開く方式にする。
-// 開いた先の共有ボタンから「ファイルに保存」できる。
 // スマホのOS標準「共有」機能を使って保存する（Android・iPhoneどちらにも対応）。
 // 共有が使えない環境（PC等）では、新しいタブでPDFを開く方式にフォールバックする。
 async function openGeneratedPdf(doc, filename){
@@ -472,10 +454,6 @@ async function openGeneratedPdf(doc, filename){
   }
   return false;
 }
-
-// ページ読み込み時にフォントを先読みしておく（ボタン押下時にawaitの
-// 待ち時間を作らないことで、新しいタブを開く操作がブロックされにくくなる）
-ensureJpFont().catch(e=>console.log('フォント先読みに失敗しました', e));
 
 // ---------- 状態（メモリ上に保持し、localStorageへ自動保存） ----------
 let addresses = [];   // {id, type:'normal'|'post', name, honor, zip, addr1, addr2, postZip, postAddr, postAddr2, postName, fav}
@@ -935,31 +913,33 @@ document.getElementById('makePdfBtn').addEventListener('click', ()=>{
   if(!a){ toast('宛先を選んでください'); return; }
   if(combineMode && !b){ toast('2件目の宛先を選んでください'); return; }
   if(!sender.name){ toast('差出人情報を先に登録してください'); return; }
-  if(!jpFontBase64){
-    toast('フォント準備中…数秒待ってもう一度押してください');
-    ensureJpFont().catch(e=>console.log('フォント読み込み失敗', e));
-    return;
+
+  try{
+    const W = sizeSettings.w, H = sizeSettings.h;
+    const doc = new jsPDF({unit:'mm', format:[W,H]});
+    const items = combineMode ? [a, b] : [a];
+    const halfH = combineMode ? H/2 : H;
+
+    items.forEach((rec, i)=>{
+      const top = i*halfH;
+      drawLabelBlock(doc, top, halfH, W, buildLabelLines(rec));
+      if(i < items.length-1){
+        doc.setLineDash([1,1]);
+        doc.line(2, top+halfH, W-2, top+halfH);
+        doc.setLineDash([]);
+      }
+    });
+    const fileSafeName = items.map(r=>r.name).join('_').replace(/[\\/:*?"<>|]/g,'');
+    openGeneratedPdf(doc, `送付状_${fileSafeName}`).then(shared=>{
+      toast(shared ? 'PDFを共有しました' : 'PDFを開きました。保存アイコンから保存できます');
+    }).catch(err=>{
+      console.error(err);
+      toast('エラー: ' + err.message);
+    });
+  }catch(err){
+    console.error(err);
+    toast('エラー: ' + err.message);
   }
-
-  const W = sizeSettings.w, H = sizeSettings.h;
-  const doc = new jsPDF({unit:'mm', format:[W,H]});
-  registerJpFont(doc);
-  const items = combineMode ? [a, b] : [a];
-  const halfH = combineMode ? H/2 : H;
-
-  items.forEach((rec, i)=>{
-    const top = i*halfH;
-    drawLabelBlock(doc, top, halfH, W, buildLabelLines(rec));
-    if(i < items.length-1){
-      doc.setLineDash([1,1]);
-      doc.line(2, top+halfH, W-2, top+halfH);
-      doc.setLineDash([]);
-    }
-  });
-  const fileSafeName = items.map(r=>r.name).join('_').replace(/[\\/:*?"<>|]/g,'');
-  openGeneratedPdf(doc, `送付状_${fileSafeName}`).then(shared=>{
-    toast(shared ? 'PDFを共有しました' : 'PDFを開きました。保存アイコンから保存できます');
-  });
 });
 
 // ---------- まとめて一括PDF出力 ----------
@@ -1007,104 +987,135 @@ document.getElementById('bulkPdfBtn').addEventListener('click', ()=>{
   const list = addresses.filter(a=>bulkSelected.has(a.id));
   if(list.length===0){ toast('宛先を1件以上選んでください'); return; }
   if(!sender.name){ toast('差出人情報を先に登録してください'); return; }
-  if(!jpFontBase64){
-    toast('フォント準備中…数秒待ってもう一度押してください');
-    ensureJpFont().catch(e=>console.log('フォント読み込み失敗', e));
-    return;
-  }
 
-  const W = sizeSettings.w, H = sizeSettings.h;
-  const doc = new jsPDF({unit:'mm', format:[W,H]});
-  registerJpFont(doc);
-  list.forEach((rec, i)=>{
-    if(i>0){ doc.addPage([W,H]); doc.setFont('NotoSansJP'); }
-    drawLabelBlock(doc, 0, H, W, buildLabelLines(rec));
-  });
-  openGeneratedPdf(doc, `送付状_まとめて${list.length}件`).then(shared=>{
-    toast(shared ? `${list.length}件のPDFを共有しました` : `${list.length}件のPDFを開きました。保存アイコンから保存できます`);
-  });
+  try{
+    const W = sizeSettings.w, H = sizeSettings.h;
+    const doc = new jsPDF({unit:'mm', format:[W,H]});
+    list.forEach((rec, i)=>{
+      if(i>0) doc.addPage([W,H]);
+      drawLabelBlock(doc, 0, H, W, buildLabelLines(rec));
+    });
+    openGeneratedPdf(doc, `送付状_まとめて${list.length}件`).then(shared=>{
+      toast(shared ? `${list.length}件のPDFを共有しました` : `${list.length}件のPDFを開きました。保存アイコンから保存できます`);
+    }).catch(err=>{
+      console.error(err);
+      toast('エラー: ' + err.message);
+    });
+  }catch(err){
+    console.error(err);
+    toast('エラー: ' + err.message);
+  }
 });
 
-function drawZipBox(doc, x, y, zip, opts){
-  opts = opts || {};
-  const cellW = opts.cellW || 4.6;
-  const cellH = opts.cellH || 5.6;
-  const hyphenW = opts.hyphenW || 2.4;
-  const fontSize = opts.fontSize || 9;
-  const digits = zipDigitsArray(zip);
+const PX_PER_MM = 8; // canvas解像度(印刷にも十分な精細さ)
+const FONT_STACK = '"Noto Sans JP","Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif';
 
-  doc.setLineWidth(0.25);
-  doc.setDrawColor(230,0,18);
+function drawZipBoxCanvas(ctx, x, y, zip, cellW, cellH, fontPx){
+  const digits = zipDigitsArray(zip);
+  ctx.lineWidth = Math.max(1, cellH*0.045);
+  ctx.strokeStyle = 'rgb(230,0,18)';
+  ctx.fillStyle = '#141414';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
   let cx = x;
   for(let i=0;i<7;i++){
-    doc.rect(cx, y, cellW, cellH);
+    ctx.strokeRect(cx, y, cellW, cellH);
     if(digits[i]){
-      doc.setFontSize(fontSize);
-      doc.setTextColor(20,20,20);
-      doc.text(digits[i], cx + cellW/2, y + cellH/2 + fontSize*0.13, {align:'center'});
+      ctx.font = `${fontPx}px ${FONT_STACK}`;
+      ctx.fillText(digits[i], cx + cellW/2, y + cellH/2 + fontPx*0.05);
     }
     cx += cellW;
     if(i===2){
-      doc.setDrawColor(230,0,18);
-      doc.line(cx + 0.5, y + cellH/2, cx + hyphenW - 0.5, y + cellH/2);
+      const hyphenW = cellW*0.5;
+      ctx.beginPath();
+      ctx.moveTo(cx + hyphenW*0.15, y + cellH/2);
+      ctx.lineTo(cx + hyphenW*0.85, y + cellH/2);
+      ctx.stroke();
       cx += hyphenW;
     }
   }
-  return cellW*7 + hyphenW;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  return cx;
 }
 
-function drawLabelBlock(doc, top, h, w, to){
-  const left = 5;
-  const right = w - 5;
-  let y = top + 8;
+// 1件分のラベル(TO+FROM)をcanvasに描画し、PNGのdataURLを返す。
+// widthMM x heightMM は、そのラベル枠の実寸(mm)。
+function renderLabelToDataUrl(to, widthMM, heightMM){
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(widthMM * PX_PER_MM);
+  canvas.height = Math.round(heightMM * PX_PER_MM);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  doc.setFontSize(8);
-  doc.setTextColor(177,56,46);
-  doc.text('お届け先 (TO)', left, y);
-  y += 3;
+  const mm = v => v * PX_PER_MM;
+  const left = mm(5);
+  const right = canvas.width - mm(5);
+  let y = mm(8);
 
-  drawZipBox(doc, left, y, to.zip, {cellW:4.8, cellH:6, fontSize:10});
-  y += 6 + 3;
+  ctx.fillStyle = 'rgb(177,56,46)';
+  ctx.font = `bold ${mm(3)}px ${FONT_STACK}`;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('お届け先 (TO)', left, y);
+  y += mm(3);
 
-  doc.setFontSize(10);
-  doc.setTextColor(30,30,30);
+  drawZipBoxCanvas(ctx, left, y, to.zip, mm(4.8), mm(6), mm(3.6));
+  y += mm(6 + 3);
+
+  ctx.fillStyle = 'rgb(30,30,30)';
+  ctx.font = `${mm(3.6)}px ${FONT_STACK}`;
   (to.addr||'').split('\n').forEach(line=>{
-    doc.text(line, left, y);
-    y += 5;
+    ctx.fillText(line, left, y);
+    y += mm(5);
   });
-  y += 1;
-  doc.setFontSize(13);
-  doc.text(to.name||'', left, y);
-  y += 7;
+  y += mm(1);
+  ctx.font = `bold ${mm(4.6)}px ${FONT_STACK}`;
+  ctx.fillStyle = '#000000';
+  ctx.fillText(to.name||'', left, y);
+  y += mm(7);
 
   if(to.note){
-    doc.setFontSize(8);
-    doc.setTextColor(100,95,88);
-    doc.text(to.note, left, y);
-    y += 5;
+    ctx.font = `${mm(2.9)}px ${FONT_STACK}`;
+    ctx.fillStyle = 'rgb(100,95,88)';
+    ctx.fillText(to.note, left, y);
+    y += mm(5);
   }
 
-  doc.setDrawColor(200,200,200);
-  doc.line(left, y, right, y);
-  y += 5;
+  ctx.strokeStyle = 'rgb(200,200,200)';
+  ctx.lineWidth = mm(0.2);
+  ctx.beginPath();
+  ctx.moveTo(left, y);
+  ctx.lineTo(right, y);
+  ctx.stroke();
+  y += mm(5);
 
-  doc.setFontSize(7.5);
-  doc.setTextColor(70,90,110);
-  doc.text('ご依頼主 (FROM)', left, y);
-  y += 2.5;
+  ctx.fillStyle = 'rgb(70,90,110)';
+  ctx.font = `${mm(2.7)}px ${FONT_STACK}`;
+  ctx.fillText('ご依頼主 (FROM)', left, y);
+  y += mm(2.5);
 
-  drawZipBox(doc, left, y, sender.zip, {cellW:3.6, cellH:4.4, fontSize:7.5});
-  y += 4.4 + 2.5;
+  drawZipBoxCanvas(ctx, left, y, sender.zip, mm(3.6), mm(4.4), mm(2.7));
+  y += mm(4.4 + 2.5);
 
-  doc.setFontSize(8.5);
-  doc.setTextColor(60,60,60);
+  ctx.fillStyle = 'rgb(60,60,60)';
+  ctx.font = `${mm(3.1)}px ${FONT_STACK}`;
   (`${sender.addr1||''}${sender.addr2 ? '\n'+sender.addr2 : ''}`).split('\n').forEach(line=>{
     if(!line) return;
-    doc.text(line, left, y);
-    y += 4.2;
+    ctx.fillText(line, left, y);
+    y += mm(4.2);
   });
-  doc.setFontSize(9.5);
-  doc.text(sender.name||'', left, y+1);
+  ctx.font = `bold ${mm(3.4)}px ${FONT_STACK}`;
+  ctx.fillStyle = '#000000';
+  ctx.fillText(sender.name||'', left, y+mm(1));
+
+  return canvas.toDataURL('image/png');
+}
+
+// PDFの指定位置(top〜top+h)に、そのラベルの画像を貼り付ける
+function drawLabelBlock(doc, top, h, w, to){
+  const dataUrl = renderLabelToDataUrl(to, w, h);
+  doc.addImage(dataUrl, 'PNG', 0, top, w, h);
 }
 
 // ---------- バックアップ書き出し／読み込み ----------
