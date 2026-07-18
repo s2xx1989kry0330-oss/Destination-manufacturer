@@ -160,6 +160,16 @@ input:focus, select:focus{outline:2px solid var(--stamp); outline-offset:1px;}
   background:#FBEFED;color:var(--stamp);font-size:12.5px;font-weight:700;
 }
 .fav-chip.active{background:var(--stamp);color:#fff;}
+.zip-row{display:flex;align-items:center;margin-top:2px;}
+.zip-cell{
+  width:15px;height:18px;border:1.4px solid #E4002B;
+  display:flex;align-items:center;justify-content:center;
+  font-family:"Courier New",monospace;font-size:12px;color:#1a1a1a;
+  margin-right:1.5px;background:#fff;
+}
+.zip-hyphen{width:6px;text-align:center;color:#E4002B;font-weight:700;font-size:12px;margin-right:1.5px;}
+.zip-row.small .zip-cell{width:12px;height:14px;font-size:9px;}
+.zip-row.small .zip-hyphen{width:5px;font-size:9px;}
 .icon-btn{
   border:1px solid var(--line-soft);background:#fff;border-radius:6px;
   width:34px;height:34px;font-size:15px;color:var(--ink);
@@ -841,20 +851,38 @@ function buildLabelLines(a){
   };
 }
 
+function zipDigitsArray(zip){
+  const digits = (zip||'').replace(/[^0-9]/g,'');
+  const arr = digits.split('');
+  while(arr.length < 7) arr.push('');
+  return arr.slice(0,7);
+}
+
+function zipBoxHtml(zip, small){
+  const d = zipDigitsArray(zip);
+  let html = `<div class="zip-row${small?' small':''}">`;
+  for(let i=0;i<7;i++){
+    html += `<div class="zip-cell">${escapeHtml(d[i]||'')}</div>`;
+    if(i===2) html += `<div class="zip-hyphen">－</div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
 function fillHalf(el, a){
   if(!a){ el.innerHTML = '<div class="hint" style="margin:0;">（未選択）</div>'; return; }
   const to = buildLabelLines(a);
   el.innerHTML = `
     <div>
       <div class="lbl-tag">お届け先 TO</div>
-      <div class="lbl-zip">〒 ${escapeHtml(to.zip||'―')}</div>
+      ${zipBoxHtml(to.zip, false)}
       <div class="lbl-addr">${escapeHtml(to.addr||'')}</div>
       <div class="lbl-name">${escapeHtml(to.name||'')}</div>
       ${to.note ? `<div class="lbl-addr" style="margin-top:3px;font-size:9.5px;color:#6b6459;">${escapeHtml(to.note)}</div>` : ''}
     </div>
     <div class="lbl-from">
       <div class="lbl-tag">ご依頼主 FROM</div>
-      <div class="lbl-zip" style="font-size:10px;">〒 ${escapeHtml(sender.zip||'―')}</div>
+      ${zipBoxHtml(sender.zip, true)}
       <div class="lbl-addr" style="font-size:9.5px;">${escapeHtml(sender.addr1||'')}${sender.addr2?'\n'+sender.addr2:''}</div>
       <div class="lbl-name">${escapeHtml(sender.name||'')}</div>
     </div>`;
@@ -973,6 +1001,34 @@ document.getElementById('bulkPdfBtn').addEventListener('click', async ()=>{
   toast(`${list.length}件をまとめてPDF化しました`);
 });
 
+function drawZipBox(doc, x, y, zip, opts){
+  opts = opts || {};
+  const cellW = opts.cellW || 4.6;
+  const cellH = opts.cellH || 5.6;
+  const hyphenW = opts.hyphenW || 2.4;
+  const fontSize = opts.fontSize || 9;
+  const digits = zipDigitsArray(zip);
+
+  doc.setLineWidth(0.25);
+  doc.setDrawColor(230,0,18);
+  let cx = x;
+  for(let i=0;i<7;i++){
+    doc.rect(cx, y, cellW, cellH);
+    if(digits[i]){
+      doc.setFontSize(fontSize);
+      doc.setTextColor(20,20,20);
+      doc.text(digits[i], cx + cellW/2, y + cellH/2 + fontSize*0.13, {align:'center'});
+    }
+    cx += cellW;
+    if(i===2){
+      doc.setDrawColor(230,0,18);
+      doc.line(cx + 0.5, y + cellH/2, cx + hyphenW - 0.5, y + cellH/2);
+      cx += hyphenW;
+    }
+  }
+  return cellW*7 + hyphenW;
+}
+
 function drawLabelBlock(doc, top, h, w, to){
   const left = 5;
   const right = w - 5;
@@ -981,14 +1037,13 @@ function drawLabelBlock(doc, top, h, w, to){
   doc.setFontSize(8);
   doc.setTextColor(177,56,46);
   doc.text('お届け先 (TO)', left, y);
-  y += 6;
+  y += 3;
 
-  doc.setFontSize(11);
-  doc.setTextColor(30,30,30);
-  doc.text(`〒 ${to.zip||''}`, left, y);
-  y += 6;
+  drawZipBox(doc, left, y, to.zip, {cellW:4.8, cellH:6, fontSize:10});
+  y += 6 + 3;
 
   doc.setFontSize(10);
+  doc.setTextColor(30,30,30);
   (to.addr||'').split('\n').forEach(line=>{
     doc.text(line, left, y);
     y += 5;
@@ -1012,12 +1067,13 @@ function drawLabelBlock(doc, top, h, w, to){
   doc.setFontSize(7.5);
   doc.setTextColor(70,90,110);
   doc.text('ご依頼主 (FROM)', left, y);
-  y += 5;
+  y += 2.5;
+
+  drawZipBox(doc, left, y, sender.zip, {cellW:3.6, cellH:4.4, fontSize:7.5});
+  y += 4.4 + 2.5;
 
   doc.setFontSize(8.5);
   doc.setTextColor(60,60,60);
-  doc.text(`〒 ${sender.zip||''}`, left, y);
-  y += 4.5;
   (`${sender.addr1||''}${sender.addr2 ? '\n'+sender.addr2 : ''}`).split('\n').forEach(line=>{
     if(!line) return;
     doc.text(line, left, y);
