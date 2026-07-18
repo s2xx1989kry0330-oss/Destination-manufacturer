@@ -434,25 +434,12 @@ const { jsPDF } = window.jspdf;
 
 // スマホのOS標準「共有」機能を使って保存する（Android・iPhoneどちらにも対応）。
 // 共有が使えない環境（PC等）では、新しいタブでPDFを開く方式にフォールバックする。
-async function openGeneratedPdf(doc, filename){
-  const safeName = (filename || '送付状') + '.pdf';
-  try{
-    const blob = doc.output('blob');
-    const file = new File([blob], safeName, {type:'application/pdf'});
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      await navigator.share({files:[file], title: safeName});
-      return true;
-    }
-  }catch(err){
-    // ユーザーがキャンセルした場合や共有APIが使えない場合はフォールバックへ
-    console.log('共有に失敗、フォールバックします', err);
-  }
+function openGeneratedPdf(doc){
   const blobUrl = doc.output('bloburl');
   const win = window.open(blobUrl, '_blank');
   if(!win){
     window.location.href = blobUrl;
   }
-  return false;
 }
 
 // ---------- 状態（メモリ上に保持し、localStorageへ自動保存） ----------
@@ -929,13 +916,8 @@ document.getElementById('makePdfBtn').addEventListener('click', ()=>{
         doc.setLineDash([]);
       }
     });
-    const fileSafeName = items.map(r=>r.name).join('_').replace(/[\\/:*?"<>|]/g,'');
-    openGeneratedPdf(doc, `送付状_${fileSafeName}`).then(shared=>{
-      toast(shared ? 'PDFを共有しました' : 'PDFを開きました。保存アイコンから保存できます');
-    }).catch(err=>{
-      console.error(err);
-      toast('エラー: ' + err.message);
-    });
+    openGeneratedPdf(doc);
+    toast('新しいタブでPDFを開きました');
   }catch(err){
     console.error(err);
     toast('エラー: ' + err.message);
@@ -995,12 +977,8 @@ document.getElementById('bulkPdfBtn').addEventListener('click', ()=>{
       if(i>0) doc.addPage([W,H]);
       drawLabelBlock(doc, 0, H, W, buildLabelLines(rec));
     });
-    openGeneratedPdf(doc, `送付状_まとめて${list.length}件`).then(shared=>{
-      toast(shared ? `${list.length}件のPDFを共有しました` : `${list.length}件のPDFを開きました。保存アイコンから保存できます`);
-    }).catch(err=>{
-      console.error(err);
-      toast('エラー: ' + err.message);
-    });
+    openGeneratedPdf(doc);
+    toast(`${list.length}件のPDFを新しいタブで開きました`);
   }catch(err){
     console.error(err);
     toast('エラー: ' + err.message);
@@ -1058,10 +1036,10 @@ function renderLabelToDataUrl(to, widthMM, heightMM){
   ctx.font = `bold ${mm(3)}px ${FONT_STACK}`;
   ctx.textBaseline = 'alphabetic';
   ctx.fillText('お届け先 (TO)', left, y);
-  y += mm(3);
+  y += mm(4);
 
   drawZipBoxCanvas(ctx, left, y, to.zip, mm(4.8), mm(6), mm(3.6));
-  y += mm(6 + 3);
+  y += mm(6 + 5);
 
   ctx.fillStyle = 'rgb(30,30,30)';
   ctx.font = `${mm(3.6)}px ${FONT_STACK}`;
@@ -1093,10 +1071,10 @@ function renderLabelToDataUrl(to, widthMM, heightMM){
   ctx.fillStyle = 'rgb(70,90,110)';
   ctx.font = `${mm(2.7)}px ${FONT_STACK}`;
   ctx.fillText('ご依頼主 (FROM)', left, y);
-  y += mm(2.5);
+  y += mm(3.2);
 
   drawZipBoxCanvas(ctx, left, y, sender.zip, mm(3.6), mm(4.4), mm(2.7));
-  y += mm(4.4 + 2.5);
+  y += mm(4.4 + 4);
 
   ctx.fillStyle = 'rgb(60,60,60)';
   ctx.font = `${mm(3.1)}px ${FONT_STACK}`;
