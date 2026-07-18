@@ -10,6 +10,9 @@
 <link rel="icon" href="icon-192.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
 :root{
   --paper:#F6F3EC;
@@ -170,13 +173,34 @@ input:focus, select:focus{outline:2px solid var(--stamp); outline-offset:1px;}
 .zip-hyphen{width:6px;text-align:center;color:#E4002B;font-weight:700;font-size:12px;margin-right:1.5px;}
 .zip-row.small .zip-cell{width:12px;height:14px;font-size:9px;}
 .zip-row.small .zip-hyphen{width:5px;font-size:9px;}
+.size-diagram-box{
+  border:2px solid var(--line);
+  background:#F7F5F0;
+  position:relative;
+}
+.size-diagram-label{
+  position:absolute;
+  font-size:11px;
+  font-weight:700;
+  color:var(--line);
+  background:var(--card);
+  padding:1px 5px;
+  border-radius:4px;
+  white-space:nowrap;
+}
 .icon-btn{
   border:1px solid var(--line-soft);background:#fff;border-radius:6px;
   width:34px;height:34px;font-size:15px;color:var(--ink);
 }
 .empty{
-  text-align:center;color:#9b9488;font-size:13px;padding:30px 10px;
+  text-align:center;color:#9b9488;font-size:13px;padding:34px 10px;
   border:1px dashed var(--line-soft);border-radius:8px;
+  line-height:2;
+}
+.empty br{content:'';display:block;margin:2px 0;}
+.list-item.fav-item{
+  background:linear-gradient(90deg,#FFF9EC,#fff);
+  border-color:#E8D394;
 }
 .hint{font-size:11.5px;color:#8a8378;margin-top:6px;line-height:1.5;}
 .section-toggle{display:flex;gap:8px;margin-bottom:4px;}
@@ -191,14 +215,27 @@ input:focus, select:focus{outline:2px solid var(--stamp); outline-offset:1px;}
 .label-sheet{
   width:260px; /* 100mm相当の表示幅 */
   aspect-ratio:100/150;
-  background:#fff;
+  background:linear-gradient(180deg,#ffffff,#fbfaf7);
   border:1.5px solid var(--ink);
+  border-radius:2px;
   display:flex;
   flex-direction:column;
   overflow:hidden;
+  position:relative;
+  box-shadow:0 8px 20px rgba(42,38,34,.18), 0 2px 6px rgba(42,38,34,.12);
+}
+.label-sheet::after{
+  content:'';
+  position:absolute;
+  inset:5px;
+  border:1px dashed rgba(177,56,46,.35);
+  pointer-events:none;
+  border-radius:1px;
 }
 .label-half{
   flex:1;
+  position:relative;
+  z-index:1;
   padding:9px 10px;
   display:flex;
   flex-direction:column;
@@ -226,6 +263,8 @@ footer.tabbar{
   font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:50;
 }
 .toast.show{opacity:1;}
+.toast.toast-success{background:var(--ok);}
+.toast.toast-error{background:var(--stamp-dark);}
 .pane{display:none;}
 .pane.active{display:block;}
 </style>
@@ -240,6 +279,7 @@ footer.tabbar{
 <div class="privacy-banner">🔒 入力した住所・氏名は外部のサーバーには一切送信されません。このスマホのブラウザ内だけに自動保存され、アプリを閉じても消えません。</div>
 
 <nav>
+  <button data-pane="account">アカウント</button>
   <button data-pane="addr" class="active">宛先</button>
   <button data-pane="sender">差出人</button>
   <button data-pane="settings">設定</button>
@@ -247,6 +287,29 @@ footer.tabbar{
 </nav>
 
 <main>
+
+  <!-- ============ アカウント ============ -->
+  <section class="pane" id="pane-account">
+    <div class="card">
+      <h2>Googleアカウントでバックアップ</h2>
+      <div class="hint">Googleでログインすると、宛先・差出人・お気に入りがクラウドに保存され、機種変更やブラウザのデータ削除があっても消えなくなります。ログインしない場合も、これまで通りこの端末内だけに保存されて動作します。</div>
+
+      <div id="accountLoggedOut">
+        <button class="btn btn-primary" id="googleLoginBtn">🔐 Googleでログイン</button>
+      </div>
+
+      <div id="accountLoggedIn" style="display:none;">
+        <div class="list-item" style="margin-top:10px;">
+          <div class="meta">
+            <strong id="accountName">-</strong><br>
+            <span style="color:#8a8378;font-size:12px;" id="accountEmail">-</span>
+          </div>
+        </div>
+        <div class="hint" id="syncStatus">-</div>
+        <button class="btn btn-outline" id="googleLogoutBtn">ログアウト</button>
+      </div>
+    </div>
+  </section>
 
   <!-- ============ 宛先管理 ============ -->
   <section class="pane active" id="pane-addr">
@@ -315,6 +378,7 @@ footer.tabbar{
 
     <div class="card">
       <h2>保存済みの宛先一覧</h2>
+      <input type="text" id="addrSearch" placeholder="🔍 名前で検索…" style="margin-bottom:10px;">
       <div id="addrList"></div>
     </div>
 
@@ -369,6 +433,9 @@ footer.tabbar{
         </div>
       </div>
       <div class="hint" id="sizeHint" style="margin-top:10px;"></div>
+      <div style="display:flex;justify-content:center;margin:14px 0;">
+        <div id="sizeDiagramWrap" style="position:relative;"></div>
+      </div>
       <button class="btn btn-primary" id="saveSizeBtn">このサイズを保存する</button>
     </div>
   </section>
@@ -402,6 +469,7 @@ footer.tabbar{
         </div>
       </div>
       <div class="hint" id="sizeNote"></div>
+      <div class="hint" style="color:#B1382E;">点線は印刷時に文字がはみ出ないための目安（安全エリア）です。</div>
       <button class="btn btn-primary" id="makePdfBtn">📄 PDFとして保存する</button>
     </div>
 
@@ -449,7 +517,125 @@ let editingId = null;
 let sizeSettings = { preset:'clickpost', w:105, h:148 };
 
 const STORAGE_KEY = 'shipping_label_maker_v1';
+
+// ---------- Firebase（Googleログイン + Firestoreバックアップ） ----------
+const firebaseConfig = {
+  apiKey: "AIzaSyCwQH3H5jBA_XqFYJOMfmeyQ8q_Psj6Cl0",
+  authDomain: "shipping-label-maker-bd751.firebaseapp.com",
+  projectId: "shipping-label-maker-bd751",
+  storageBucket: "shipping-label-maker-bd751.firebasestorage.app",
+  messagingSenderId: "16926954724",
+  appId: "1:16926954724:web:f7114f4ab1387834ee88f1"
+};
+let fbUser = null;
+let fbDb = null;
+let suppressNextCloudEcho = false;
+let cloudUnsubscribe = null;
+
+try{
+  firebase.initializeApp(firebaseConfig);
+  fbDb = firebase.firestore();
+}catch(e){
+  console.log('Firebase初期化に失敗しました', e);
+}
+
+function updateSyncStatus(text){
+  const el = document.getElementById('syncStatus');
+  if(el) el.textContent = text;
+}
+
+function renderAccountUI(){
+  const loggedOut = document.getElementById('accountLoggedOut');
+  const loggedIn = document.getElementById('accountLoggedIn');
+  if(fbUser){
+    loggedOut.style.display = 'none';
+    loggedIn.style.display = 'block';
+    document.getElementById('accountName').textContent = fbUser.displayName || 'ログイン中';
+    document.getElementById('accountEmail').textContent = fbUser.email || '';
+  } else {
+    loggedOut.style.display = 'block';
+    loggedIn.style.display = 'none';
+  }
+}
+
+document.getElementById('googleLoginBtn').addEventListener('click', async ()=>{
+  try{
+    const provider = new firebase.auth.GoogleAuthProvider();
+    await firebase.auth().signInWithPopup(provider);
+  }catch(err){
+    console.error(err);
+    toast('ログインに失敗しました: ' + err.message);
+  }
+});
+document.getElementById('googleLogoutBtn').addEventListener('click', async ()=>{
+  try{
+    await firebase.auth().signOut();
+    toast('ログアウトしました。以降はこの端末内だけに保存されます');
+  }catch(err){
+    console.error(err);
+  }
+});
+
+if(typeof firebase !== 'undefined'){
+  firebase.auth().onAuthStateChanged(async (user)=>{
+    fbUser = user;
+    renderAccountUI();
+    if(cloudUnsubscribe){ cloudUnsubscribe(); cloudUnsubscribe = null; }
+
+    if(user){
+      updateSyncStatus('クラウドのデータを読み込み中…');
+      try{
+        const docRef = fbDb.collection('users').doc(user.uid);
+        const snap = await docRef.get();
+        if(snap.exists){
+          const data = snap.data();
+          addresses = data.addresses || [];
+          sender = data.sender || sender;
+          sizeSettings = data.sizeSettings || sizeSettings;
+        } else {
+          // 初回ログイン：この端末に既にあるデータをクラウドへアップロード
+          await docRef.set({addresses, sender, sizeSettings});
+        }
+        refreshAllUI();
+        updateSyncStatus('✅ クラウドに同期済み（このGoogleアカウントでどの端末からも同じデータが使えます）');
+
+        // 他の端末からの変更をリアルタイムに反映
+        cloudUnsubscribe = docRef.onSnapshot(snap=>{
+          if(!snap.exists) return;
+          if(suppressNextCloudEcho){ suppressNextCloudEcho = false; return; }
+          const data = snap.data();
+          addresses = data.addresses || [];
+          sender = data.sender || sender;
+          sizeSettings = data.sizeSettings || sizeSettings;
+          refreshAllUI();
+        });
+      }catch(err){
+        console.error(err);
+        updateSyncStatus('⚠ クラウド同期に失敗しました。この端末内のデータのみ使えます');
+      }
+    } else {
+      loadState();
+      refreshAllUI();
+    }
+  });
+}
+
+function refreshAllUI(){
+  renderAddrList();
+  document.getElementById('sName').value = sender.name||'';
+  document.getElementById('sZip').value = sender.zip||'';
+  document.getElementById('sAddr1').value = sender.addr1||'';
+  document.getElementById('sAddr2').value = sender.addr2||'';
+}
+
 function saveState(){
+  if(fbUser && fbDb){
+    suppressNextCloudEcho = true;
+    fbDb.collection('users').doc(fbUser.uid).set({addresses, sender, sizeSettings}).catch(err=>{
+      console.log('クラウド保存に失敗しました', err);
+      updateSyncStatus('⚠ クラウド保存に失敗しました');
+    });
+  }
   try{
     localStorage.setItem(STORAGE_KEY, JSON.stringify({addresses, sender, sizeSettings}));
   }catch(e){ console.log('端末への保存に失敗しました', e); }
@@ -471,11 +657,15 @@ const SIZE_PRESETS = {
   yupacket:  {w:140, h:95,  label:'ゆうパケット等（140×95mm）'},
 };
 
-function toast(msg){
+function toast(msg, type){
   const t = document.getElementById('toast');
+  if(!type){
+    type = (/エラー|失敗|できません|してください|選んで/.test(msg)) ? 'error' : 'success';
+  }
   t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), 1600);
+  t.classList.remove('toast-success','toast-error');
+  t.classList.add('show', type==='error' ? 'toast-error' : 'toast-success');
+  setTimeout(()=>t.classList.remove('show'), 2000);
 }
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 
@@ -573,15 +763,21 @@ function clearAddrForm(){
 function renderAddrList(){
   const wrap = document.getElementById('addrList');
   if(addresses.length===0){
-    wrap.innerHTML = '<div class="empty">まだ宛先が登録されていません</div>';
+    wrap.innerHTML = '<div class="empty">📪<br>まだ宛先が登録されていません<br><span style="font-size:11px;">上のフォームから最初の宛先を追加してみましょう</span></div>';
     return;
   }
-  const sorted = [...addresses].sort((a,b)=> (b.fav?1:0) - (a.fav?1:0));
+  const query = (document.getElementById('addrSearch').value || '').trim();
+  const filtered = query ? addresses.filter(a=>a.name && a.name.includes(query)) : addresses;
+  if(filtered.length===0){
+    wrap.innerHTML = `<div class="empty">🔍<br>「${escapeHtml(query)}」に一致する宛先が見つかりません</div>`;
+    return;
+  }
+  const sorted = [...filtered].sort((a,b)=> (b.fav?1:0) - (a.fav?1:0));
   wrap.innerHTML = '';
   sorted.forEach(a=>{
     const div = document.createElement('div');
-    div.className = 'list-item';
-    const kindLabel = a.type==='post' ? '<span class="kind kind-post">局留め</span>' : '<span class="kind kind-normal">通常</span>';
+    div.className = 'list-item' + (a.fav ? ' fav-item' : '');
+    const kindLabel = a.type==='post' ? '<span class="kind kind-post">📮 局留め</span>' : '<span class="kind kind-normal">🏠 通常</span>';
     const sub = a.type==='post' ? (a.postName+'　局留め') : (a.addr1||'');
     div.innerHTML = `
       <div class="meta">${kindLabel}<strong>${escapeHtml(a.name)}</strong> ${escapeHtml(a.honor)}<br><span style="color:#8a8378;">${escapeHtml(sub)}</span></div>
@@ -596,6 +792,7 @@ function renderAddrList(){
   wrap.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', ()=>delAddr(b.dataset.del)));
   wrap.querySelectorAll('[data-fav]').forEach(b=>b.addEventListener('click', ()=>toggleFav(b.dataset.fav)));
 }
+document.getElementById('addrSearch').addEventListener('input', renderAddrList);
 function toggleFav(id){
   const a = addresses.find(x=>x.id===id);
   if(!a) return;
@@ -694,13 +891,34 @@ function updateSizeHint(){
   const v = sizePresetSel.value;
   document.getElementById('customSizeFields').style.display = v==='custom' ? 'block' : 'none';
   const hint = document.getElementById('sizeHint');
+  let w, h;
   if(v==='custom'){
     hint.textContent = 'お使いのラベル用紙の幅と高さをミリ単位で入力してください。';
+    w = parseFloat(document.getElementById('customW').value) || null;
+    h = parseFloat(document.getElementById('customH').value) || null;
   } else {
     const p = SIZE_PRESETS[v];
     hint.textContent = `このサイズで保存すると、以後すべてのラベルが ${p.w}×${p.h}mm で作成されます。`;
+    w = p.w; h = p.h;
   }
+  renderSizeDiagram(w, h);
 }
+function renderSizeDiagram(w, h){
+  const wrap = document.getElementById('sizeDiagramWrap');
+  if(!w || !h){ wrap.innerHTML = ''; return; }
+  const maxPx = 130;
+  const scale = maxPx / Math.max(w, h);
+  const boxW = Math.round(w*scale), boxH = Math.round(h*scale);
+  wrap.style.width = (boxW+50)+'px';
+  wrap.style.height = (boxH+36)+'px';
+  wrap.innerHTML = `
+    <div class="size-diagram-box" style="width:${boxW}px;height:${boxH}px;margin:18px 0 0 10px;">
+      <div class="size-diagram-label" style="top:-10px;left:50%;transform:translateX(-50%);">${w}mm</div>
+      <div class="size-diagram-label" style="top:50%;left:${boxW+4}px;transform:translateY(-50%);">${h}mm</div>
+    </div>`;
+}
+document.getElementById('customW').addEventListener('input', updateSizeHint);
+document.getElementById('customH').addEventListener('input', updateSizeHint);
 function loadSizeFormFromState(){
   sizePresetSel.value = sizeSettings.preset;
   document.getElementById('customW').value = sizeSettings.preset==='custom' ? sizeSettings.w : '';
@@ -894,34 +1112,54 @@ function renderPreview(){
 }
 
 // ---------- PDF出力（1〜2件） ----------
-document.getElementById('makePdfBtn').addEventListener('click', ()=>{
+function withButtonBusy(btn, busyText, fn){
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  btn.textContent = busyText;
+  // disabled状態を画面に反映させてから重い処理を実行する
+  setTimeout(()=>{
+    try{
+      fn();
+    } finally {
+      btn.disabled = false;
+      btn.style.opacity = '';
+      btn.textContent = original;
+    }
+  }, 30);
+}
+
+document.getElementById('makePdfBtn').addEventListener('click', function(){
+  const btn = this;
   const a = currentAddr();
   const b = combineMode ? currentAddrB() : null;
   if(!a){ toast('宛先を選んでください'); return; }
   if(combineMode && !b){ toast('2件目の宛先を選んでください'); return; }
   if(!sender.name){ toast('差出人情報を先に登録してください'); return; }
 
-  try{
-    const W = sizeSettings.w, H = sizeSettings.h;
-    const doc = new jsPDF({unit:'mm', format:[W,H]});
-    const items = combineMode ? [a, b] : [a];
-    const halfH = combineMode ? H/2 : H;
+  withButtonBusy(btn, '📄 作成中…', ()=>{
+    try{
+      const W = sizeSettings.w, H = sizeSettings.h;
+      const doc = new jsPDF({unit:'mm', format:[W,H]});
+      const items = combineMode ? [a, b] : [a];
+      const halfH = combineMode ? H/2 : H;
 
-    items.forEach((rec, i)=>{
-      const top = i*halfH;
-      drawLabelBlock(doc, top, halfH, W, buildLabelLines(rec));
-      if(i < items.length-1){
-        doc.setLineDash([1,1]);
-        doc.line(2, top+halfH, W-2, top+halfH);
-        doc.setLineDash([]);
-      }
-    });
-    openGeneratedPdf(doc);
-    toast('新しいタブでPDFを開きました');
-  }catch(err){
-    console.error(err);
-    toast('エラー: ' + err.message);
-  }
+      items.forEach((rec, i)=>{
+        const top = i*halfH;
+        drawLabelBlock(doc, top, halfH, W, buildLabelLines(rec));
+        if(i < items.length-1){
+          doc.setLineDash([1,1]);
+          doc.line(2, top+halfH, W-2, top+halfH);
+          doc.setLineDash([]);
+        }
+      });
+      openGeneratedPdf(doc);
+      toast('新しいタブでPDFを開きました');
+    }catch(err){
+      console.error(err);
+      toast('エラー: ' + err.message);
+    }
+  });
 });
 
 // ---------- まとめて一括PDF出力 ----------
@@ -937,7 +1175,7 @@ function renderBulkList(){
     const row = document.createElement('label');
     row.className = 'list-item';
     row.style.cursor = 'pointer';
-    const kindLabel = a.type==='post' ? '<span class="kind kind-post">局留め</span>' : '<span class="kind kind-normal">通常</span>';
+    const kindLabel = a.type==='post' ? '<span class="kind kind-post">📮 局留め</span>' : '<span class="kind kind-normal">🏠 通常</span>';
     row.innerHTML = `
       <div class="meta">${kindLabel}<strong>${escapeHtml(a.name)}</strong> ${escapeHtml(a.honor)}</div>
       <div class="actions"><input type="checkbox" data-bulk="${a.id}" ${bulkSelected.has(a.id)?'checked':''} style="width:20px;height:20px;"></div>`;
@@ -965,24 +1203,27 @@ document.getElementById('bulkNoneBtn').addEventListener('click', ()=>{
   bulkSelected = new Set();
   renderBulkList();
 });
-document.getElementById('bulkPdfBtn').addEventListener('click', ()=>{
+document.getElementById('bulkPdfBtn').addEventListener('click', function(){
+  const btn = this;
   const list = addresses.filter(a=>bulkSelected.has(a.id));
   if(list.length===0){ toast('宛先を1件以上選んでください'); return; }
   if(!sender.name){ toast('差出人情報を先に登録してください'); return; }
 
-  try{
-    const W = sizeSettings.w, H = sizeSettings.h;
-    const doc = new jsPDF({unit:'mm', format:[W,H]});
-    list.forEach((rec, i)=>{
-      if(i>0) doc.addPage([W,H]);
-      drawLabelBlock(doc, 0, H, W, buildLabelLines(rec));
-    });
-    openGeneratedPdf(doc);
-    toast(`${list.length}件のPDFを新しいタブで開きました`);
-  }catch(err){
-    console.error(err);
-    toast('エラー: ' + err.message);
-  }
+  withButtonBusy(btn, `📄 ${list.length}件作成中…`, ()=>{
+    try{
+      const W = sizeSettings.w, H = sizeSettings.h;
+      const doc = new jsPDF({unit:'mm', format:[W,H]});
+      list.forEach((rec, i)=>{
+        if(i>0) doc.addPage([W,H]);
+        drawLabelBlock(doc, 0, H, W, buildLabelLines(rec));
+      });
+      openGeneratedPdf(doc);
+      toast(`${list.length}件のPDFを新しいタブで開きました`);
+    }catch(err){
+      console.error(err);
+      toast('エラー: ' + err.message);
+    }
+  });
 });
 
 const PX_PER_MM = 8; // canvas解像度(印刷にも十分な精細さ)
