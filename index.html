@@ -447,6 +447,36 @@ function registerJpFont(doc){
   doc.setFont('NotoSansJP');
 }
 
+// ホーム画面追加(standalone)のiOSではdoc.save()の直接ダウンロードが
+// 何も起きずに失敗することがあるため、新しいタブでPDFを開く方式にする。
+// 開いた先の共有ボタンから「ファイルに保存」できる。
+// スマホのOS標準「共有」機能を使って保存する（Android・iPhoneどちらにも対応）。
+// 共有が使えない環境（PC等）では、新しいタブでPDFを開く方式にフォールバックする。
+async function openGeneratedPdf(doc, filename){
+  const safeName = (filename || '送付状') + '.pdf';
+  try{
+    const blob = doc.output('blob');
+    const file = new File([blob], safeName, {type:'application/pdf'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title: safeName});
+      return true;
+    }
+  }catch(err){
+    // ユーザーがキャンセルした場合や共有APIが使えない場合はフォールバックへ
+    console.log('共有に失敗、フォールバックします', err);
+  }
+  const blobUrl = doc.output('bloburl');
+  const win = window.open(blobUrl, '_blank');
+  if(!win){
+    window.location.href = blobUrl;
+  }
+  return false;
+}
+
+// ページ読み込み時にフォントを先読みしておく（ボタン押下時にawaitの
+// 待ち時間を作らないことで、新しいタブを開く操作がブロックされにくくなる）
+ensureJpFont().catch(e=>console.log('フォント先読みに失敗しました', e));
+
 // ---------- 状態（メモリ上に保持し、localStorageへ自動保存） ----------
 let addresses = [];   // {id, type:'normal'|'post', name, honor, zip, addr1, addr2, postZip, postAddr, postAddr2, postName, fav}
 let sender = {name:'', zip:'', addr1:'', addr2:''};
@@ -899,19 +929,15 @@ function renderPreview(){
 }
 
 // ---------- PDF出力（1〜2件） ----------
-document.getElementById('makePdfBtn').addEventListener('click', async ()=>{
+document.getElementById('makePdfBtn').addEventListener('click', ()=>{
   const a = currentAddr();
   const b = combineMode ? currentAddrB() : null;
   if(!a){ toast('宛先を選んでください'); return; }
   if(combineMode && !b){ toast('2件目の宛先を選んでください'); return; }
   if(!sender.name){ toast('差出人情報を先に登録してください'); return; }
-
-  toast('PDFを作成中…');
-  try{
-    await ensureJpFont();
-  }catch(err){
-    console.error(err);
-    toast('フォントの読み込みに失敗しました。ネット接続を確認してください。');
+  if(!jpFontBase64){
+    toast('フォント準備中…数秒待ってもう一度押してください');
+    ensureJpFont().catch(e=>console.log('フォント読み込み失敗', e));
     return;
   }
 
@@ -931,8 +957,9 @@ document.getElementById('makePdfBtn').addEventListener('click', async ()=>{
     }
   });
   const fileSafeName = items.map(r=>r.name).join('_').replace(/[\\/:*?"<>|]/g,'');
-  doc.save(`送付状_${fileSafeName}.pdf`);
-  toast('PDFを保存しました');
+  openGeneratedPdf(doc, `送付状_${fileSafeName}`).then(shared=>{
+    toast(shared ? 'PDFを共有しました' : 'PDFを開きました。保存アイコンから保存できます');
+  });
 });
 
 // ---------- まとめて一括PDF出力 ----------
@@ -976,17 +1003,13 @@ document.getElementById('bulkNoneBtn').addEventListener('click', ()=>{
   bulkSelected = new Set();
   renderBulkList();
 });
-document.getElementById('bulkPdfBtn').addEventListener('click', async ()=>{
+document.getElementById('bulkPdfBtn').addEventListener('click', ()=>{
   const list = addresses.filter(a=>bulkSelected.has(a.id));
   if(list.length===0){ toast('宛先を1件以上選んでください'); return; }
   if(!sender.name){ toast('差出人情報を先に登録してください'); return; }
-
-  toast('PDFを作成中…');
-  try{
-    await ensureJpFont();
-  }catch(err){
-    console.error(err);
-    toast('フォントの読み込みに失敗しました。ネット接続を確認してください。');
+  if(!jpFontBase64){
+    toast('フォント準備中…数秒待ってもう一度押してください');
+    ensureJpFont().catch(e=>console.log('フォント読み込み失敗', e));
     return;
   }
 
@@ -997,8 +1020,9 @@ document.getElementById('bulkPdfBtn').addEventListener('click', async ()=>{
     if(i>0){ doc.addPage([W,H]); doc.setFont('NotoSansJP'); }
     drawLabelBlock(doc, 0, H, W, buildLabelLines(rec));
   });
-  doc.save(`送付状_まとめて${list.length}件.pdf`);
-  toast(`${list.length}件をまとめてPDF化しました`);
+  openGeneratedPdf(doc, `送付状_まとめて${list.length}件`).then(shared=>{
+    toast(shared ? `${list.length}件のPDFを共有しました` : `${list.length}件のPDFを開きました。保存アイコンから保存できます`);
+  });
 });
 
 function drawZipBox(doc, x, y, zip, opts){
