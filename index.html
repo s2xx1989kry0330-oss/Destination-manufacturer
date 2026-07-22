@@ -369,7 +369,7 @@ footer.tabbar{
           <input type="text" id="homeAddr1">
           <label class="field">受取人の現住所2（任意）</label>
           <input type="text" id="homeAddr2">
-          <div class="hint">郵便局名・局留めの下に、〔　〕でまとめて印字されます（郵便番号＋住所の2行を1組の〔〕で囲みます）。</div>
+          <div class="hint">郵便局名・局留めの下に、大きな〔　〕でまとめて印字されます。</div>
         </div>
       </div>
 
@@ -416,6 +416,7 @@ footer.tabbar{
       <label class="field">サイズを選ぶ</label>
       <select id="sizePreset">
         <option value="clickpost">クリックポスト用（A6 / 105×148mm）</option>
+        <option value="clickpost100">クリックポスト用（サーマルラベル / 100×148mm）</option>
         <option value="double">2面複製用（100×150mm）</option>
         <option value="yupacket">ゆうパケット等（140×95mm）</option>
         <option value="custom">自由入力</option>
@@ -653,6 +654,7 @@ function loadState(){
 
 const SIZE_PRESETS = {
   clickpost: {w:105, h:148, label:'クリックポスト用（A6 / 105×148mm）'},
+  clickpost100: {w:100, h:148, label:'クリックポスト用（サーマルラベル / 100×148mm）'},
   double:    {w:100, h:150, label:'2面複製用（100×150mm）'},
   yupacket:  {w:140, h:95,  label:'ゆうパケット等（140×95mm）'},
 };
@@ -1027,38 +1029,37 @@ function currentAddrB(){
 }
 
 function buildLabelLines(a){
-  // 郵便局留め／通常、どちらでも {zip, addr, name, note} を返す
-  if(!a) return {zip:'', addr:'', name:'', note:''};
+  // 郵便局留め／通常、どちらでも {zip, addr, addrLines, name, note} を返す
+  // addrLines: [{text, bracketGroup}] bracketGroupが同じ値の行同士を、
+  // 大きな一つの〔〕で描画時にまとめて囲む。
+  if(!a) return {zip:'', addr:'', addrLines:[], name:'', note:''};
   if(a.type==='post'){
-    const parts = [];
+    const lines = [];
     // 郵便局の住所（任意）
-    const officeAddrLine = [a.postAddr, a.postAddr2].filter(Boolean).join('\n');
-    if(officeAddrLine) parts.push(officeAddrLine);
+    if(a.postAddr) lines.push({text:a.postAddr, bracketGroup:null});
+    if(a.postAddr2) lines.push({text:a.postAddr2, bracketGroup:null});
     // 局名＋局留め
-    parts.push(`${a.postName}\u3000局留め`);
-    // 受取人の現住所（任意・2行まとめて〔〕）
+    lines.push({text:`${a.postName}\u3000局留め`, bracketGroup:null});
+    // 受取人の現住所（任意・複数行あっても大きな1つの〔〕でまとめて囲む）
     if(a.postShowHome && (a.homeZip || a.homeAddr1)){
-      const homeLines = [];
-      if(a.homeZip) homeLines.push(`〒${a.homeZip}`);
-      const homeAddrLine = [a.homeAddr1, a.homeAddr2].filter(Boolean).join('\u3000');
-      if(homeAddrLine) homeLines.push(homeAddrLine);
-      const bracketed = homeLines.map((l,i)=>{
-        if(i===0) l = '\u3014'+l;
-        if(i===homeLines.length-1) l = l+'\u3015';
-        return l;
-      });
-      parts.push(bracketed.join('\n'));
+      if(a.homeZip) lines.push({text:`〒${a.homeZip}`, bracketGroup:'home'});
+      if(a.homeAddr1) lines.push({text:a.homeAddr1, bracketGroup:'home'});
+      if(a.homeAddr2) lines.push({text:a.homeAddr2, bracketGroup:'home'});
     }
     return {
       zip: a.postZip,
-      addr: parts.join('\n'),
+      addr: lines.map(l=>l.text).join('\n'),
+      addrLines: lines,
       name: `${a.name}\u3000${a.honor}`,
       note: ''
     };
   }
+  const normalLines = [{text:a.addr1||'', bracketGroup:null}];
+  if(a.addr2) normalLines.push({text:a.addr2, bracketGroup:null});
   return {
     zip: a.zip,
     addr: `${a.addr1}${a.addr2 ? '\n'+a.addr2 : ''}`,
+    addrLines: normalLines,
     name: `${a.name}\u3000${a.honor}`,
     note: ''
   };
@@ -1082,6 +1083,32 @@ function zipBoxHtml(zip, small){
   return html;
 }
 
+function addrLinesToPreviewHtml(addrLines){
+  if(!addrLines || addrLines.length===0) return '';
+  let html = '';
+  let i = 0;
+  while(i < addrLines.length){
+    const group = addrLines[i].bracketGroup;
+    if(group){
+      const groupTexts = [];
+      while(i < addrLines.length && addrLines[i].bracketGroup === group){
+        groupTexts.push(addrLines[i].text);
+        i++;
+      }
+      groupTexts.forEach((t,idx)=>{
+        let line = escapeHtml(t);
+        if(idx===0) line = '〔'+line;
+        if(idx===groupTexts.length-1) line = line+'〕';
+        html += line + '\n';
+      });
+    } else {
+      html += escapeHtml(addrLines[i].text) + '\n';
+      i++;
+    }
+  }
+  return html.replace(/\n$/,'');
+}
+
 function fillHalf(el, a){
   if(!a){ el.innerHTML = '<div class="hint" style="margin:0;">（未選択）</div>'; return; }
   const to = buildLabelLines(a);
@@ -1089,7 +1116,7 @@ function fillHalf(el, a){
     <div>
       <div class="lbl-tag">お届け先 TO</div>
       ${zipBoxHtml(to.zip, false)}
-      <div class="lbl-addr">${escapeHtml(to.addr||'')}</div>
+      <div class="lbl-addr">${addrLinesToPreviewHtml(to.addrLines)}</div>
       <div class="lbl-name">${escapeHtml(to.name||'')}</div>
       ${to.note ? `<div class="lbl-addr" style="margin-top:3px;font-size:9.5px;color:#6b6459;">${escapeHtml(to.note)}</div>` : ''}
     </div>
@@ -1260,6 +1287,77 @@ function drawZipBoxCanvas(ctx, x, y, zip, cellW, cellH, fontPx){
 
 // 1件分のラベル(TO+FROM)をcanvasに描画し、PNGのdataURLを返す。
 // widthMM x heightMM は、そのラベル枠の実寸(mm)。
+// 住所の行を描画。bracketGroupが同じ行同士は、大きな一つの〔〕でまとめて囲む。
+// 大きな括弧を線で描く(幅は高さに関係なく一定に保てるので、枠からはみ出さない)
+function drawBigBracket(ctx, x, top, bottom, notch, opensRight, mm){
+  ctx.beginPath();
+  if(opensRight){
+    // 〔 相当：右側に開く
+    ctx.moveTo(x + notch, top);
+    ctx.lineTo(x, top + notch);
+    ctx.lineTo(x, bottom - notch);
+    ctx.lineTo(x + notch, bottom);
+  } else {
+    // 〕 相当：左側に開く
+    ctx.moveTo(x - notch, top);
+    ctx.lineTo(x, top + notch);
+    ctx.lineTo(x, bottom - notch);
+    ctx.lineTo(x - notch, bottom);
+  }
+  ctx.stroke();
+}
+
+function drawAddrLines(ctx, lines, left, startY, lineHeight, mm, safeRight){
+  let y = startY;
+  let i = 0;
+  while(i < lines.length){
+    const group = lines[i].bracketGroup;
+    if(group){
+      const groupStartY = y;
+      const groupTexts = [];
+      while(i < lines.length && lines[i].bracketGroup === group){
+        ctx.fillText(lines[i].text, left, y);
+        groupTexts.push(lines[i].text);
+        y += lineHeight;
+        i++;
+      }
+      const groupLastLineBaseline = y - lineHeight;
+
+      // グループ内で一番幅が広い行を調べ、括弧を置く左右位置を決める
+      let maxWidth = 0;
+      groupTexts.forEach(t=>{
+        const w = ctx.measureText(t).width;
+        if(w > maxWidth) maxWidth = w;
+      });
+
+      const bracketTop = groupStartY - lineHeight*0.78;
+      const bracketBottom = groupLastLineBaseline + lineHeight*0.28;
+      const notch = mm(1.0);
+
+      // 右側の括弧が用紙のふち(枠線)を超えないよう安全範囲内に収める
+      // 〕の角は左向き(x-notch)に出るので、右端はx自体になる
+      let closeX = left + maxWidth + mm(1.8);
+      if(safeRight && closeX > safeRight){
+        closeX = safeRight;
+      }
+
+      ctx.save();
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = mm(0.35);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      drawBigBracket(ctx, left - mm(1.8), bracketTop, bracketBottom, notch, true, mm);
+      drawBigBracket(ctx, closeX, bracketTop, bracketBottom, notch, false, mm);
+      ctx.restore();
+    } else {
+      ctx.fillText(lines[i].text, left, y);
+      y += lineHeight;
+      i++;
+    }
+  }
+  return y;
+}
+
 function renderLabelToDataUrl(to, widthMM, heightMM){
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(widthMM * PX_PER_MM);
@@ -1269,6 +1367,15 @@ function renderLabelToDataUrl(to, widthMM, heightMM){
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   const mm = v => v * PX_PER_MM;
+
+  // 用紙全体を囲む枠線。感熱プリンター等が「文字がある範囲だけ」を
+  // 用紙サイズと誤認識してしまうのを防ぐため、用紙のふち近くまで
+  // 印刷範囲を示す枠を入れておく。
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = Math.max(1, mm(0.4));
+  const inset = mm(1.2);
+  ctx.strokeRect(inset, inset, canvas.width - inset*2, canvas.height - inset*2);
+
   const left = mm(5);
   const right = canvas.width - mm(5);
   let y = mm(8);
@@ -1284,10 +1391,7 @@ function renderLabelToDataUrl(to, widthMM, heightMM){
 
   ctx.fillStyle = 'rgb(30,30,30)';
   ctx.font = `${mm(3.6)}px ${FONT_STACK}`;
-  (to.addr||'').split('\n').forEach(line=>{
-    ctx.fillText(line, left, y);
-    y += mm(5);
-  });
+  y = drawAddrLines(ctx, to.addrLines||[], left, y, mm(5), mm, canvas.width - mm(2.5));
   y += mm(1);
   ctx.font = `bold ${mm(4.6)}px ${FONT_STACK}`;
   ctx.fillStyle = '#000000';
