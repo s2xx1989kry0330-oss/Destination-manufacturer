@@ -276,7 +276,7 @@ footer.tabbar{
   <h1>送付状メーカー</h1>
 </header>
 
-<div class="privacy-banner">🔒 入力した住所・氏名は外部のサーバーには一切送信されません。このスマホのブラウザ内だけに自動保存され、アプリを閉じても消えません。</div>
+<div class="privacy-banner">🔒 ログインしていない間は、この端末のブラウザ内に保存されます。Googleログインを有効にすると、宛先・差出人情報はバックアップのためFirebase Firestoreへ送信・保存されます。</div>
 
 <nav>
   <button data-pane="account">アカウント</button>
@@ -589,10 +589,10 @@ if(typeof firebase !== 'undefined'){
         const docRef = fbDb.collection('users').doc(user.uid);
         const snap = await docRef.get();
         if(snap.exists){
-          const data = snap.data();
-          addresses = data.addresses || [];
-          sender = data.sender || sender;
-          sizeSettings = data.sizeSettings || sizeSettings;
+          const data = sanitizeState(snap.data());
+          addresses = data.addresses;
+          sender = data.sender;
+          sizeSettings = data.sizeSettings;
         } else {
           // 初回ログイン：この端末に既にあるデータをクラウドへアップロード
           await docRef.set({addresses, sender, sizeSettings});
@@ -604,10 +604,10 @@ if(typeof firebase !== 'undefined'){
         cloudUnsubscribe = docRef.onSnapshot(snap=>{
           if(!snap.exists) return;
           if(suppressNextCloudEcho){ suppressNextCloudEcho = false; return; }
-          const data = snap.data();
-          addresses = data.addresses || [];
-          sender = data.sender || sender;
-          sizeSettings = data.sizeSettings || sizeSettings;
+          const data = sanitizeState(snap.data());
+          addresses = data.addresses;
+          sender = data.sender;
+          sizeSettings = data.sizeSettings;
           refreshAllUI();
         });
       }catch(err){
@@ -641,14 +641,50 @@ function saveState(){
     localStorage.setItem(STORAGE_KEY, JSON.stringify({addresses, sender, sizeSettings}));
   }catch(e){ console.log('端末への保存に失敗しました', e); }
 }
+function safeText(value, max=500){
+  return typeof value === 'string' ? value.slice(0, max) : '';
+}
+function sanitizeAddress(a){
+  if(!a || typeof a !== 'object') return null;
+  const type = a.type === 'post' ? 'post' : 'normal';
+  let id = safeText(a.id, 80);
+  if(!/^[a-zA-Z0-9_-]{1,80}$/.test(id)) id = uid();
+  const out = {
+    id, type, name: safeText(a.name, 200), honor: ['様','御中','行'].includes(a.honor) ? a.honor : '様',
+    fav: a.fav === true
+  };
+  ['zip','addr1','addr2','postZip','postAddr','postAddr2','postName','homeZip','homeAddr1','homeAddr2'].forEach(k=>{
+    if(typeof a[k] === 'string') out[k] = safeText(a[k], 500);
+  });
+  out.postShowHome = a.postShowHome === true;
+  return out;
+}
+function sanitizeState(data){
+  if(!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('invalid backup format');
+  const nextAddresses = Array.isArray(data.addresses) ? data.addresses.slice(0, 5000).map(sanitizeAddress).filter(Boolean) : [];
+  const s = data.sender && typeof data.sender === 'object' && !Array.isArray(data.sender) ? data.sender : {};
+  const nextSender = {
+    name: safeText(s.name, 200), zip: safeText(s.zip, 30),
+    addr1: safeText(s.addr1, 500), addr2: safeText(s.addr2, 500)
+  };
+  const z = data.sizeSettings && typeof data.sizeSettings === 'object' ? data.sizeSettings : {};
+  const allowed = ['clickpost','clickpost100','double','yupacket','custom'];
+  let preset = allowed.includes(z.preset) ? z.preset : 'clickpost';
+  let w = Number(z.w), h = Number(z.h);
+  if(!Number.isFinite(w) || !Number.isFinite(h) || w < 20 || h < 20 || w > 500 || h > 500){
+    const p = SIZE_PRESETS[preset] || SIZE_PRESETS.clickpost; w = p.w; h = p.h;
+  }
+  return {addresses: nextAddresses, sender: nextSender, sizeSettings: {preset, w, h}};
+}
+
 function loadState(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
     if(!raw) return;
-    const data = JSON.parse(raw);
-    addresses = data.addresses || [];
-    sender = data.sender || sender;
-    sizeSettings = data.sizeSettings || sizeSettings;
+    const data = sanitizeState(JSON.parse(raw));
+    addresses = data.addresses;
+    sender = data.sender;
+    sizeSettings = data.sizeSettings;
   }catch(e){ console.log('端末データの読み込みに失敗しました', e); }
 }
 
@@ -784,9 +820,9 @@ function renderAddrList(){
     div.innerHTML = `
       <div class="meta">${kindLabel}<strong>${escapeHtml(a.name)}</strong> ${escapeHtml(a.honor)}<br><span style="color:#8a8378;">${escapeHtml(sub)}</span></div>
       <div class="actions">
-        <button class="star-btn ${a.fav?'on':''}" data-fav="${a.id}" title="よく送る人に登録">${a.fav?'★':'☆'}</button>
-        <button class="icon-btn" data-edit="${a.id}">✎</button>
-        <button class="icon-btn" data-del="${a.id}">🗑</button>
+        <button class="star-btn ${a.fav?'on':''}" data-fav="${escapeHtml(a.id)}" title="よく送る人に登録">${a.fav?'★':'☆'}</button>
+        <button class="icon-btn" data-edit="${escapeHtml(a.id)}">✎</button>
+        <button class="icon-btn" data-del="${escapeHtml(a.id)}">🗑</button>
       </div>`;
     wrap.appendChild(div);
   });
@@ -1460,10 +1496,11 @@ document.getElementById('importFile').addEventListener('change', (e)=>{
   const reader = new FileReader();
   reader.onload = (evt)=>{
     try{
-      const data = JSON.parse(evt.target.result);
-      addresses = data.addresses || [];
-      sender = data.sender || sender;
-      sizeSettings = data.sizeSettings || sizeSettings;
+      if(file.size > 5 * 1024 * 1024) throw new Error('backup too large');
+      const data = sanitizeState(JSON.parse(evt.target.result));
+      addresses = data.addresses;
+      sender = data.sender;
+      sizeSettings = data.sizeSettings;
       renderAddrList();
       document.getElementById('sName').value = sender.name||'';
       document.getElementById('sZip').value = sender.zip||'';
@@ -1476,6 +1513,7 @@ document.getElementById('importFile').addEventListener('change', (e)=>{
     }
   };
   reader.readAsText(file);
+  e.target.value = '';
 });
 
 // ---------- 初期表示 ----------
