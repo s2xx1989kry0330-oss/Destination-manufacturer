@@ -1,4 +1,4 @@
-const CACHE_NAME = 'label-maker-v2';
+const CACHE_NAME = 'label-maker-v3-local';
 const CORE_ASSETS = [
   './index.html', './manifest.json', './icon-192.png', './icon-512.png'
 ];
