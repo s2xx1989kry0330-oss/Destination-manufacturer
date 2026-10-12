@@ -1,0 +1,1392 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>送付状メーカー</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#B1382E">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<style>
+:root{
+  --paper:#F6F3EC;
+  --ink:#2A2622;
+  --stamp:#B1382E;
+  --stamp-dark:#8C2A22;
+  --line:#33475B;
+  --line-soft:#C9C2B4;
+  --card:#FFFFFF;
+  --ok:#3C6E52;
+}
+*{box-sizing:border-box;}
+body{
+  margin:0;
+  font-family:"Hiragino Sans","Noto Sans JP",sans-serif;
+  background:var(--paper);
+  color:var(--ink);
+  padding-bottom:90px;
+}
+header{
+  padding:22px 20px 16px;
+  background:var(--paper);
+  border-bottom:2px solid var(--ink);
+}
+header .eyebrow{
+  font-size:11px;
+  letter-spacing:.14em;
+  color:var(--stamp);
+  font-weight:700;
+}
+header h1{
+  margin:4px 0 0;
+  font-size:22px;
+  font-family:"Hiragino Mincho ProN","Noto Serif JP",serif;
+  letter-spacing:.02em;
+}
+.privacy-banner{
+  margin:12px 16px 0;
+  padding:9px 12px;
+  background:#EEF3EE;
+  border:1px solid #BFD3C4;
+  border-radius:8px;
+  font-size:11.5px;
+  color:var(--ok);
+  line-height:1.5;
+}
+nav{
+  display:flex;
+  position:sticky;
+  top:0;
+  background:var(--paper);
+  z-index:10;
+  border-bottom:1px solid var(--line-soft);
+}
+nav button{
+  flex:1;
+  padding:13px 4px;
+  background:none;
+  border:none;
+  font-size:13px;
+  font-weight:700;
+  color:#8a8378;
+  border-bottom:3px solid transparent;
+}
+nav button.active{
+  color:var(--ink);
+  border-bottom:3px solid var(--stamp);
+}
+main{padding:16px;max-width:520px;margin:0 auto;}
+.card{
+  background:var(--card);
+  border:1px solid var(--line-soft);
+  border-radius:10px;
+  padding:16px;
+  margin-bottom:14px;
+}
+.card h2{
+  font-size:14px;
+  margin:0 0 12px;
+  padding-bottom:8px;
+  border-bottom:1px solid var(--line-soft);
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.card h2 .tag{
+  font-size:10px;
+  background:var(--line);
+  color:#fff;
+  padding:2px 7px;
+  border-radius:20px;
+  font-weight:700;
+}
+label.field{display:block;font-size:12px;color:#6b6459;margin:10px 0 4px;font-weight:700;}
+input[type=text], select{
+  width:100%;
+  padding:11px 10px;
+  border:1px solid var(--line-soft);
+  border-radius:7px;
+  font-size:15px;
+  background:#fff;
+  color:var(--ink);
+  font-family:inherit;
+}
+input:focus, select:focus{outline:2px solid var(--stamp); outline-offset:1px;}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.btn{
+  display:inline-block;
+  width:100%;
+  padding:13px;
+  border-radius:8px;
+  border:none;
+  font-weight:700;
+  font-size:15px;
+  margin-top:10px;
+  cursor:pointer;
+}
+.btn-primary{background:var(--stamp);color:#fff;}
+.btn-primary:active{background:var(--stamp-dark);}
+.btn-outline{background:none;border:1px solid var(--line);color:var(--line);}
+.btn-danger{background:none;border:1px solid var(--stamp);color:var(--stamp);}
+.btn-small{width:auto;padding:7px 12px;font-size:12px;margin-top:0;}
+.list-item{
+  border:1px solid var(--line-soft);
+  border-radius:8px;
+  padding:10px 12px;
+  margin-bottom:8px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+}
+.list-item .meta{font-size:13px;line-height:1.5;}
+.list-item .meta .kind{
+  display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;margin-right:6px;
+}
+.kind-normal{background:#E7EEF3;color:var(--line);}
+.kind-post{background:#F5E4E1;color:var(--stamp);}
+.list-item .actions{display:flex;gap:6px;flex-shrink:0;}
+.star-btn{
+  border:none;background:none;font-size:20px;line-height:1;color:#D9D3C4;
+  width:34px;height:34px;
+}
+.star-btn.on{color:#D9A62E;}
+.fav-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+.fav-chip{
+  padding:8px 12px;border-radius:20px;border:1px solid var(--stamp);
+  background:#FBEFED;color:var(--stamp);font-size:12.5px;font-weight:700;
+}
+.fav-chip.active{background:var(--stamp);color:#fff;}
+.zip-row{display:flex;align-items:center;margin-top:2px;}
+.zip-cell{
+  width:15px;height:18px;border:1.4px solid #E4002B;
+  display:flex;align-items:center;justify-content:center;
+  font-family:"Courier New",monospace;font-size:12px;color:#1a1a1a;
+  margin-right:1.5px;background:#fff;
+}
+.zip-hyphen{width:6px;text-align:center;color:#E4002B;font-weight:700;font-size:12px;margin-right:1.5px;}
+.zip-row.small .zip-cell{width:12px;height:14px;font-size:9px;}
+.zip-row.small .zip-hyphen{width:5px;font-size:9px;}
+.size-diagram-box{
+  border:2px solid var(--line);
+  background:#F7F5F0;
+  position:relative;
+}
+.size-diagram-label{
+  position:absolute;
+  font-size:11px;
+  font-weight:700;
+  color:var(--line);
+  background:var(--card);
+  padding:1px 5px;
+  border-radius:4px;
+  white-space:nowrap;
+}
+.icon-btn{
+  border:1px solid var(--line-soft);background:#fff;border-radius:6px;
+  width:34px;height:34px;font-size:15px;color:var(--ink);
+}
+.empty{
+  text-align:center;color:#9b9488;font-size:13px;padding:34px 10px;
+  border:1px dashed var(--line-soft);border-radius:8px;
+  line-height:2;
+}
+.empty br{content:'';display:block;margin:2px 0;}
+.list-item.fav-item{
+  background:linear-gradient(90deg,#FFF9EC,#fff);
+  border-color:#E8D394;
+}
+.hint{font-size:11.5px;color:#8a8378;margin-top:6px;line-height:1.5;}
+.section-toggle{display:flex;gap:8px;margin-bottom:4px;}
+.section-toggle button{
+  flex:1;padding:10px;border-radius:7px;border:1px solid var(--line-soft);
+  background:#fff;font-size:13px;font-weight:700;color:#8a8378;
+}
+.section-toggle button.on{border-color:var(--stamp);color:var(--stamp);background:#FBEFED;}
+
+/* ラベルプレビュー：実寸100x150mmの見た目比率 */
+.label-preview-wrap{display:flex;justify-content:center;margin:6px 0 14px;}
+.label-sheet{
+  width:260px; /* 100mm相当の表示幅 */
+  aspect-ratio:100/150;
+  background:linear-gradient(180deg,#ffffff,#fbfaf7);
+  border:1.5px solid var(--ink);
+  border-radius:2px;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  position:relative;
+  box-shadow:0 8px 20px rgba(42,38,34,.18), 0 2px 6px rgba(42,38,34,.12);
+}
+.label-sheet::after{
+  content:'';
+  position:absolute;
+  inset:5px;
+  border:1px dashed rgba(177,56,46,.35);
+  pointer-events:none;
+  border-radius:1px;
+}
+.label-half{
+  flex:1;
+  position:relative;
+  z-index:1;
+  padding:9px 10px;
+  display:flex;
+  flex-direction:column;
+  justify-content:flex-start;
+}
+.label-half + .label-half{border-top:1px dashed var(--line-soft);}
+.lbl-tag{font-size:9px;font-weight:700;color:var(--stamp);letter-spacing:.08em;}
+.lbl-zip{font-family:"Courier New",monospace;font-size:12px;margin-top:2px;letter-spacing:.03em;}
+.lbl-addr{font-size:11px;line-height:1.45;margin-top:2px;white-space:pre-wrap;}
+.lbl-name{font-size:14px;font-weight:700;margin-top:4px;}
+.lbl-from{margin-top:6px;border-top:1px solid var(--line-soft);padding-top:5px;}
+.lbl-from .lbl-tag{color:var(--line);}
+.lbl-from .lbl-name{font-size:11px;font-weight:700;}
+
+footer.tabbar{
+  position:fixed;bottom:0;left:0;right:0;
+  background:var(--card);
+  border-top:1px solid var(--line-soft);
+  padding:8px 16px calc(8px + env(safe-area-inset-bottom));
+  display:none;
+}
+.toast{
+  position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+  background:var(--ink);color:#fff;padding:10px 18px;border-radius:20px;
+  font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:50;
+}
+.toast.show{opacity:1;}
+.toast.toast-success{background:var(--ok);}
+.toast.toast-error{background:var(--stamp-dark);}
+.pane{display:none;}
+.pane.active{display:block;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">SHIPPING LABEL MAKER</div>
+  <h1>送付状メーカー</h1>
+</header>
+
+<div class="privacy-banner">🔒 宛先・差出人情報は、この端末のブラウザ内に保存されます。Googleログイン・クラウド同期は使用しません。ブラウザのデータ消去や機種変更に備えて、JSONバックアップを保存してください。</div>
+
+<nav>
+  <button data-pane="addr" class="active">宛先</button>
+  <button data-pane="sender">差出人</button>
+  <button data-pane="settings">設定</button>
+  <button data-pane="make">ラベル作成</button>
+</nav>
+
+<main>
+
+  <!-- ============ 宛先管理 ============ -->
+  <section class="pane active" id="pane-addr">
+    <div class="card">
+      <h2>📷 写真から読み取る <span class="tag">ベータ</span></h2>
+      <div class="hint">宛名が写った写真やスクリーンショットを選ぶと、文字を自動で読み取って下の入力欄に仮入力します。誤読することがあるので、必ず内容を確認してから保存してください。</div>
+      <input type="file" id="ocrFile" accept="image/*" capture="environment" style="margin-top:10px;">
+      <button class="btn btn-outline" id="ocrRunBtn">この画像から読み取る</button>
+      <div class="hint" id="ocrStatus"></div>
+    </div>
+
+    <div class="card">
+      <h2>宛先を追加 <span class="tag">通常 / 郵便局留め</span></h2>
+
+      <div class="section-toggle">
+        <button type="button" id="typeNormalBtn" class="on">通常配送</button>
+        <button type="button" id="typePostBtn">郵便局留め</button>
+      </div>
+      <div class="hint" id="typeHint">通常の住所に届けます。</div>
+
+      <label class="field">氏名</label>
+      <input type="text" id="addrName" placeholder="例）山田 太郎">
+
+      <label class="field">敬称</label>
+      <select id="addrHonor">
+        <option>様</option><option>御中</option><option>行</option>
+      </select>
+
+      <div id="normalFields">
+        <label class="field">郵便番号</label>
+        <input type="text" id="addrZip" placeholder="例）123-4567" inputmode="numeric">
+        <label class="field">住所1（都道府県・市区町村・番地）</label>
+        <input type="text" id="addrAddr1">
+        <label class="field">住所2（建物名・部屋番号など）</label>
+        <input type="text" id="addrAddr2">
+      </div>
+
+      <div id="postFields" style="display:none;">
+        <label class="field">郵便局の郵便番号</label>
+        <input type="text" id="postZip" placeholder="例）123-4567" inputmode="numeric">
+        <label class="field">郵便局の住所1（任意）</label>
+        <input type="text" id="postAddr" placeholder="例）東京都渋谷区〇〇1-2-3">
+        <label class="field">郵便局の住所2（任意・階数など）</label>
+        <input type="text" id="postAddr2" placeholder="例）〇〇ビル2F">
+        <label class="field">郵便局名</label>
+        <input type="text" id="postOfficeName" placeholder="例）渋谷郵便局">
+        <div class="hint">郵便局の住所は省略できます（局名だけでも投函先が伝われば不要な場合があります）。</div>
+
+        <div class="section-toggle" style="margin-top:14px;">
+          <button type="button" id="homeOffBtn" class="on">受取人の現住所は書かない</button>
+          <button type="button" id="homeOnBtn">受取人の現住所も書く</button>
+        </div>
+        <div id="homeAddrFields" style="display:none; margin-top:8px;">
+          <label class="field">受取人の現住所・郵便番号</label>
+          <input type="text" id="homeZip" placeholder="例）123-4567" inputmode="numeric">
+          <label class="field">受取人の現住所1</label>
+          <input type="text" id="homeAddr1">
+          <label class="field">受取人の現住所2（任意）</label>
+          <input type="text" id="homeAddr2">
+          <div class="hint">郵便局名・局留めの下に、大きな〔　〕でまとめて印字されます。</div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="saveAddrBtn">この宛先を保存する</button>
+    </div>
+
+    <div class="card">
+      <h2>保存済みの宛先一覧</h2>
+      <input type="text" id="addrSearch" placeholder="🔍 名前で検索…" style="margin-bottom:10px;">
+      <div id="addrList"></div>
+    </div>
+
+    <div class="card">
+      <h2>データの引っ越し（バックアップ）</h2>
+      <div class="hint">宛先・差出人・お気に入りはこのスマホのブラウザに自動保存されます。機種変更やブラウザデータの消去に備えて、念のためファイルにも書き出しておくと安心です。</div>
+      <button class="btn btn-outline" id="exportBtn">データを書き出す（JSON保存）</button>
+      <input type="file" id="importFile" accept="application/json" style="display:none;">
+      <button class="btn btn-outline" id="importBtn">データを読み込む</button>
+    </div>
+  </section>
+
+  <!-- ============ 差出人 ============ -->
+  <section class="pane" id="pane-sender">
+    <div class="card">
+      <h2>ご依頼主（差出人）情報</h2>
+      <div class="hint">ここで登録した情報が、すべてのラベルの「ご依頼主」欄に自動で入ります。</div>
+      <label class="field">氏名 または ショップ名</label>
+      <input type="text" id="sName">
+      <label class="field">郵便番号</label>
+      <input type="text" id="sZip" inputmode="numeric">
+      <label class="field">住所1</label>
+      <input type="text" id="sAddr1">
+      <label class="field">住所2（建物名など）</label>
+      <input type="text" id="sAddr2">
+      <button class="btn btn-primary" id="saveSenderBtn">差出人情報を保存する</button>
+    </div>
+  </section>
+
+  <!-- ============ 設定 ============ -->
+  <section class="pane" id="pane-settings">
+    <div class="card">
+      <h2>ラベルの印刷サイズ</h2>
+      <div class="hint">お使いの配送方法・ラベル用紙に合わせて選んでください。</div>
+      <label class="field">サイズを選ぶ</label>
+      <select id="sizePreset">
+        <option value="clickpost">クリックポスト用（A6 / 105×148mm）</option>
+        <option value="clickpost100">クリックポスト用（サーマルラベル / 100×148mm）</option>
+        <option value="double">2面複製用（100×150mm）</option>
+        <option value="yupacket">ゆうパケット等（140×95mm）</option>
+        <option value="custom">自由入力</option>
+      </select>
+      <div id="customSizeFields" style="display:none;">
+        <div class="row2">
+          <div>
+            <label class="field">幅（mm）</label>
+            <input type="text" id="customW" inputmode="decimal" placeholder="例）100">
+          </div>
+          <div>
+            <label class="field">高さ（mm）</label>
+            <input type="text" id="customH" inputmode="decimal" placeholder="例）148">
+          </div>
+        </div>
+      </div>
+      <div class="hint" id="sizeHint" style="margin-top:10px;"></div>
+      <div style="display:flex;justify-content:center;margin:14px 0;">
+        <div id="sizeDiagramWrap" style="position:relative;"></div>
+      </div>
+      <button class="btn btn-primary" id="saveSizeBtn">このサイズを保存する</button>
+    </div>
+  </section>
+
+  <!-- ============ ラベル作成 ============ -->
+  <section class="pane" id="pane-make">
+    <div class="card">
+      <h2>宛先を選ぶ</h2>
+      <div class="fav-chips" id="favChips"></div>
+      <label class="field">1件目</label>
+      <select id="pickAddr"></select>
+
+      <div class="section-toggle" style="margin-top:12px;">
+        <button type="button" id="combineOffBtn" class="on">1件だけ印刷</button>
+        <button type="button" id="combineOnBtn">2件を1枚にまとめる</button>
+      </div>
+      <div id="pickAddrBWrap" style="display:none; margin-top:10px;">
+        <label class="field">2件目</label>
+        <select id="pickAddrB"></select>
+      </div>
+
+      <div class="hint" id="senderCheck"></div>
+    </div>
+
+    <div class="card">
+      <h2>ラベル内容の確認</h2>
+      <div class="label-preview-wrap">
+        <div class="label-sheet" id="labelSheet">
+          <div class="label-half" id="halfA"></div>
+          <div class="label-half" id="halfB"></div>
+        </div>
+      </div>
+      <div class="hint" id="sizeNote"></div>
+      <div class="hint" style="color:#B1382E;">点線は印刷時に文字がはみ出ないための目安（安全エリア）です。</div>
+      <button class="btn btn-primary" id="makePdfBtn">📄 PDFとして保存する</button>
+    </div>
+
+    <div class="card">
+      <h2>まとめて一括PDF出力 <span class="tag">複数件</span></h2>
+      <div class="hint">たくさんの宛先から必要な分だけチェックして、1つのPDF（1件＝1ページ）にまとめて出力します。局留めだけ除外、通常だけ除外なども簡単にできます。</div>
+      <div class="section-toggle" style="margin-top:10px;">
+        <button type="button" class="btn btn-small btn-outline" id="bulkAllBtn">すべて選択</button>
+        <button type="button" class="btn btn-small btn-outline" id="bulkNormalBtn">通常のみ</button>
+        <button type="button" class="btn btn-small btn-outline" id="bulkPostBtn">局留めのみ</button>
+        <button type="button" class="btn btn-small btn-outline" id="bulkNoneBtn">選択解除</button>
+      </div>
+      <div id="bulkList" style="margin-top:12px;"></div>
+      <button class="btn btn-primary" id="bulkPdfBtn">📄 選択した宛先をまとめてPDF化</button>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const { jsPDF } = window.jspdf;
+
+// ---------- PDF保存（キャンバスに描画→画像としてPDFへ貼り付け） ----------
+// jsPDFへ日本語フォントを直接埋め込む方式は、グリフ数の多い日本語フォントで
+// 内部処理が失敗することがあるため使わない。
+// 代わりに、スマホ自身が持っている日本語フォントでcanvasに描画し、
+// その画像をPDFに貼り付ける（文字化けの心配がなく、失敗もしにくい）。
+
+// スマホのOS標準「共有」機能を使って保存する（Android・iPhoneどちらにも対応）。
+// 共有が使えない環境（PC等）では、新しいタブでPDFを開く方式にフォールバックする。
+function openGeneratedPdf(doc){
+  const blobUrl = doc.output('bloburl');
+  const win = window.open(blobUrl, '_blank');
+  if(!win){
+    window.location.href = blobUrl;
+  }
+}
+
+// ---------- 状態（メモリ上に保持し、localStorageへ自動保存） ----------
+let addresses = [];   // {id, type:'normal'|'post', name, honor, zip, addr1, addr2, postZip, postAddr, postAddr2, postName, fav}
+let sender = {name:'', zip:'', addr1:'', addr2:''};
+let editingId = null;
+let sizeSettings = { preset:'clickpost', w:105, h:148 };
+
+const STORAGE_KEY = 'shipping_label_maker_v1';
+
+// ---------- 端末内保存のみ（Googleログイン・クラウド同期なし） ----------
+function saveState(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({addresses, sender, sizeSettings}));
+  }catch(e){ console.log('端末への保存に失敗しました', e); }
+}
+function safeText(value, max=500){
+  return typeof value === 'string' ? value.slice(0, max) : '';
+}
+function sanitizeAddress(a){
+  if(!a || typeof a !== 'object') return null;
+  const type = a.type === 'post' ? 'post' : 'normal';
+  let id = safeText(a.id, 80);
+  if(!/^[a-zA-Z0-9_-]{1,80}$/.test(id)) id = uid();
+  const out = {
+    id, type, name: safeText(a.name, 200), honor: ['様','御中','行'].includes(a.honor) ? a.honor : '様',
+    fav: a.fav === true
+  };
+  ['zip','addr1','addr2','postZip','postAddr','postAddr2','postName','homeZip','homeAddr1','homeAddr2'].forEach(k=>{
+    if(typeof a[k] === 'string') out[k] = safeText(a[k], 500);
+  });
+  out.postShowHome = a.postShowHome === true;
+  return out;
+}
+function sanitizeState(data){
+  if(!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('invalid backup format');
+  const nextAddresses = Array.isArray(data.addresses) ? data.addresses.slice(0, 5000).map(sanitizeAddress).filter(Boolean) : [];
+  const s = data.sender && typeof data.sender === 'object' && !Array.isArray(data.sender) ? data.sender : {};
+  const nextSender = {
+    name: safeText(s.name, 200), zip: safeText(s.zip, 30),
+    addr1: safeText(s.addr1, 500), addr2: safeText(s.addr2, 500)
+  };
+  const z = data.sizeSettings && typeof data.sizeSettings === 'object' ? data.sizeSettings : {};
+  const allowed = ['clickpost','clickpost100','double','yupacket','custom'];
+  let preset = allowed.includes(z.preset) ? z.preset : 'clickpost';
+  let w = Number(z.w), h = Number(z.h);
+  if(!Number.isFinite(w) || !Number.isFinite(h) || w < 20 || h < 20 || w > 500 || h > 500){
+    const p = SIZE_PRESETS[preset] || SIZE_PRESETS.clickpost; w = p.w; h = p.h;
+  }
+  return {addresses: nextAddresses, sender: nextSender, sizeSettings: {preset, w, h}};
+}
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return;
+    const data = sanitizeState(JSON.parse(raw));
+    addresses = data.addresses;
+    sender = data.sender;
+    sizeSettings = data.sizeSettings;
+  }catch(e){ console.log('端末データの読み込みに失敗しました', e); }
+}
+
+const SIZE_PRESETS = {
+  clickpost: {w:105, h:148, label:'クリックポスト用（A6 / 105×148mm）'},
+  clickpost100: {w:100, h:148, label:'クリックポスト用（サーマルラベル / 100×148mm）'},
+  double:    {w:100, h:150, label:'2面複製用（100×150mm）'},
+  yupacket:  {w:140, h:95,  label:'ゆうパケット等（140×95mm）'},
+};
+
+function toast(msg, type){
+  const t = document.getElementById('toast');
+  if(!type){
+    type = (/エラー|失敗|できません|してください|選んで/.test(msg)) ? 'error' : 'success';
+  }
+  t.textContent = msg;
+  t.classList.remove('toast-success','toast-error');
+  t.classList.add('show', type==='error' ? 'toast-error' : 'toast-success');
+  setTimeout(()=>t.classList.remove('show'), 2000);
+}
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
+// ---------- タブ切替 ----------
+document.querySelectorAll('nav button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('pane-'+btn.dataset.pane).classList.add('active');
+    if(btn.dataset.pane==='make'){ refreshPicker(); renderPreview(); }
+    if(btn.dataset.pane==='settings'){ loadSizeFormFromState(); }
+  });
+});
+
+// ---------- 宛先タイプ切替 ----------
+const typeNormalBtn = document.getElementById('typeNormalBtn');
+const typePostBtn = document.getElementById('typePostBtn');
+let currentType = 'normal';
+function setType(t){
+  currentType = t;
+  typeNormalBtn.classList.toggle('on', t==='normal');
+  typePostBtn.classList.toggle('on', t==='post');
+  document.getElementById('normalFields').style.display = t==='normal' ? 'block':'none';
+  document.getElementById('postFields').style.display = t==='post' ? 'block':'none';
+  document.getElementById('typeHint').textContent = t==='normal'
+    ? '通常の住所に届けます。'
+    : '受取人が郵便局の窓口で荷物を受け取ります。宅配ロッカー代わりに便利です。';
+}
+typeNormalBtn.addEventListener('click', ()=>setType('normal'));
+typePostBtn.addEventListener('click', ()=>setType('post'));
+
+// ---------- 受取人の現住所も書く／書かない ----------
+let showHomeAddr = false;
+const homeOnBtn = document.getElementById('homeOnBtn');
+const homeOffBtn = document.getElementById('homeOffBtn');
+function setShowHome(v){
+  showHomeAddr = v;
+  homeOnBtn.classList.toggle('on', v);
+  homeOffBtn.classList.toggle('on', !v);
+  document.getElementById('homeAddrFields').style.display = v ? 'block' : 'none';
+}
+homeOnBtn.addEventListener('click', ()=>setShowHome(true));
+homeOffBtn.addEventListener('click', ()=>setShowHome(false));
+
+// ---------- 宛先の保存 ----------
+document.getElementById('saveAddrBtn').addEventListener('click', ()=>{
+  const name = document.getElementById('addrName').value.trim();
+  if(!name){ toast('氏名を入力してください'); return; }
+  const rec = {
+    id: editingId || uid(),
+    type: currentType,
+    name,
+    honor: document.getElementById('addrHonor').value,
+  };
+  if(currentType==='normal'){
+    rec.zip = document.getElementById('addrZip').value.trim();
+    rec.addr1 = document.getElementById('addrAddr1').value.trim();
+    rec.addr2 = document.getElementById('addrAddr2').value.trim();
+    if(!rec.zip || !rec.addr1){ toast('郵便番号と住所1は必須です'); return; }
+  } else {
+    rec.postZip = document.getElementById('postZip').value.trim();
+    rec.postAddr = document.getElementById('postAddr').value.trim();
+    rec.postAddr2 = document.getElementById('postAddr2').value.trim();
+    rec.postName = document.getElementById('postOfficeName').value.trim();
+    if(!rec.postZip || !rec.postName){ toast('郵便局の郵便番号と局名は必須です'); return; }
+    rec.postShowHome = showHomeAddr;
+    if(showHomeAddr){
+      rec.homeZip = document.getElementById('homeZip').value.trim();
+      rec.homeAddr1 = document.getElementById('homeAddr1').value.trim();
+      rec.homeAddr2 = document.getElementById('homeAddr2').value.trim();
+    }
+  }
+  if(editingId){
+    const idx = addresses.findIndex(a=>a.id===editingId);
+    addresses[idx] = rec;
+    editingId = null;
+    document.getElementById('saveAddrBtn').textContent = 'この宛先を保存する';
+  } else {
+    addresses.push(rec);
+  }
+  clearAddrForm();
+  renderAddrList();
+  saveState();
+  toast('宛先を保存しました');
+});
+
+function clearAddrForm(){
+  ['addrName','addrZip','addrAddr1','addrAddr2','postZip','postAddr','postAddr2','postOfficeName','homeZip','homeAddr1','homeAddr2'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('addrHonor').value = '様';
+  setType('normal');
+  setShowHome(false);
+}
+
+function renderAddrList(){
+  const wrap = document.getElementById('addrList');
+  if(addresses.length===0){
+    wrap.innerHTML = '<div class="empty">📪<br>まだ宛先が登録されていません<br><span style="font-size:11px;">上のフォームから最初の宛先を追加してみましょう</span></div>';
+    return;
+  }
+  const query = (document.getElementById('addrSearch').value || '').trim();
+  const filtered = query ? addresses.filter(a=>a.name && a.name.includes(query)) : addresses;
+  if(filtered.length===0){
+    wrap.innerHTML = `<div class="empty">🔍<br>「${escapeHtml(query)}」に一致する宛先が見つかりません</div>`;
+    return;
+  }
+  const sorted = [...filtered].sort((a,b)=> (b.fav?1:0) - (a.fav?1:0));
+  wrap.innerHTML = '';
+  sorted.forEach(a=>{
+    const div = document.createElement('div');
+    div.className = 'list-item' + (a.fav ? ' fav-item' : '');
+    const kindLabel = a.type==='post' ? '<span class="kind kind-post">📮 局留め</span>' : '<span class="kind kind-normal">🏠 通常</span>';
+    const sub = a.type==='post' ? (a.postName+'　局留め') : (a.addr1||'');
+    div.innerHTML = `
+      <div class="meta">${kindLabel}<strong>${escapeHtml(a.name)}</strong> ${escapeHtml(a.honor)}<br><span style="color:#8a8378;">${escapeHtml(sub)}</span></div>
+      <div class="actions">
+        <button class="star-btn ${a.fav?'on':''}" data-fav="${escapeHtml(a.id)}" title="よく送る人に登録">${a.fav?'★':'☆'}</button>
+        <button class="icon-btn" data-edit="${escapeHtml(a.id)}">✎</button>
+        <button class="icon-btn" data-del="${escapeHtml(a.id)}">🗑</button>
+      </div>`;
+    wrap.appendChild(div);
+  });
+  wrap.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click', ()=>editAddr(b.dataset.edit)));
+  wrap.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', ()=>delAddr(b.dataset.del)));
+  wrap.querySelectorAll('[data-fav]').forEach(b=>b.addEventListener('click', ()=>toggleFav(b.dataset.fav)));
+}
+document.getElementById('addrSearch').addEventListener('input', renderAddrList);
+function toggleFav(id){
+  const a = addresses.find(x=>x.id===id);
+  if(!a) return;
+  a.fav = !a.fav;
+  renderAddrList();
+  saveState();
+  toast(a.fav ? 'よく送る人に登録しました' : 'よく送る人から外しました');
+}
+function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function editAddr(id){
+  const a = addresses.find(x=>x.id===id);
+  if(!a) return;
+  editingId = id;
+  document.getElementById('addrName').value = a.name;
+  document.getElementById('addrHonor').value = a.honor;
+  setType(a.type);
+  if(a.type==='normal'){
+    document.getElementById('addrZip').value = a.zip||'';
+    document.getElementById('addrAddr1').value = a.addr1||'';
+    document.getElementById('addrAddr2').value = a.addr2||'';
+  } else {
+    document.getElementById('postZip').value = a.postZip||'';
+    document.getElementById('postAddr').value = a.postAddr||'';
+    document.getElementById('postAddr2').value = a.postAddr2||'';
+    document.getElementById('postOfficeName').value = a.postName||'';
+    setShowHome(!!a.postShowHome);
+    document.getElementById('homeZip').value = a.homeZip||'';
+    document.getElementById('homeAddr1').value = a.homeAddr1||'';
+    document.getElementById('homeAddr2').value = a.homeAddr2||'';
+  }
+  document.getElementById('saveAddrBtn').textContent = '編集内容を保存する';
+  document.querySelector('nav button[data-pane="addr"]').click();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function delAddr(id){
+  addresses = addresses.filter(a=>a.id!==id);
+  renderAddrList();
+  saveState();
+  toast('削除しました');
+}
+
+// ---------- 写真から読み取る（OCR） ----------
+document.getElementById('ocrRunBtn').addEventListener('click', async ()=>{
+  const fileInput = document.getElementById('ocrFile');
+  const file = fileInput.files[0];
+  const statusEl = document.getElementById('ocrStatus');
+  if(!file){ toast('画像を選んでください'); return; }
+  statusEl.textContent = '読み取り中…（初回はライブラリのダウンロードで少し時間がかかります）';
+  try{
+    const worker = await Tesseract.createWorker('jpn');
+    const { data: { text } } = await worker.recognize(file);
+    await worker.terminate();
+    applyOcrText(text);
+    statusEl.textContent = '読み取り完了。内容を確認して保存してください。';
+  }catch(err){
+    console.error(err);
+    statusEl.textContent = '読み取りに失敗しました。ネット接続を確認するか、手入力してください。';
+  }
+});
+
+function applyOcrText(rawText){
+  const lines = rawText.split('\n').map(l=>l.trim()).filter(Boolean);
+  const zipMatch = rawText.match(/\d{3}\s*-?\s*\d{4}/);
+  const zip = zipMatch ? zipMatch[0].replace(/\s/g,'').replace(/^(\d{3})-?(\d{4})$/, '$1-$2') : '';
+
+  // 氏名らしき行（様・御中・行の直前）を推定
+  let nameLine = '';
+  let nameIdx = -1;
+  lines.forEach((l, i)=>{
+    if(/[様御中行]\s*$/.test(l)){ nameLine = l.replace(/[様御中行]\s*$/,'').trim(); nameIdx = i; }
+  });
+
+  // 郵便番号の行・氏名行を除いた残りを住所とみなす
+  const addrLines = lines.filter((l,i)=> i!==nameIdx && !/^\d{3}\s*-?\s*\d{4}/.test(l) && !/〒/.test(l.replace(zip,'')) );
+  const addr1 = addrLines[0] || '';
+  const addr2 = addrLines.slice(1).join(' ') || '';
+
+  if(currentType==='normal'){
+    if(zip) document.getElementById('addrZip').value = zip;
+    if(addr1) document.getElementById('addrAddr1').value = addr1;
+    if(addr2) document.getElementById('addrAddr2').value = addr2;
+    if(nameLine) document.getElementById('addrName').value = nameLine;
+  } else {
+    if(zip) document.getElementById('postZip').value = zip;
+    if(addr1) document.getElementById('postAddr').value = [addr1, addr2].filter(Boolean).join(' ');
+    if(nameLine) document.getElementById('addrName').value = nameLine;
+  }
+  toast('読み取った内容を仮入力しました');
+}
+
+// ---------- サイズ設定 ----------
+const sizePresetSel = document.getElementById('sizePreset');
+sizePresetSel.addEventListener('change', updateSizeHint);
+function updateSizeHint(){
+  const v = sizePresetSel.value;
+  document.getElementById('customSizeFields').style.display = v==='custom' ? 'block' : 'none';
+  const hint = document.getElementById('sizeHint');
+  let w, h;
+  if(v==='custom'){
+    hint.textContent = 'お使いのラベル用紙の幅と高さをミリ単位で入力してください。';
+    w = parseFloat(document.getElementById('customW').value) || null;
+    h = parseFloat(document.getElementById('customH').value) || null;
+  } else {
+    const p = SIZE_PRESETS[v];
+    hint.textContent = `このサイズで保存すると、以後すべてのラベルが ${p.w}×${p.h}mm で作成されます。`;
+    w = p.w; h = p.h;
+  }
+  renderSizeDiagram(w, h);
+}
+function renderSizeDiagram(w, h){
+  const wrap = document.getElementById('sizeDiagramWrap');
+  if(!w || !h){ wrap.innerHTML = ''; return; }
+  const maxPx = 130;
+  const scale = maxPx / Math.max(w, h);
+  const boxW = Math.round(w*scale), boxH = Math.round(h*scale);
+  wrap.style.width = (boxW+50)+'px';
+  wrap.style.height = (boxH+36)+'px';
+  wrap.innerHTML = `
+    <div class="size-diagram-box" style="width:${boxW}px;height:${boxH}px;margin:18px 0 0 10px;">
+      <div class="size-diagram-label" style="top:-10px;left:50%;transform:translateX(-50%);">${w}mm</div>
+      <div class="size-diagram-label" style="top:50%;left:${boxW+4}px;transform:translateY(-50%);">${h}mm</div>
+    </div>`;
+}
+document.getElementById('customW').addEventListener('input', updateSizeHint);
+document.getElementById('customH').addEventListener('input', updateSizeHint);
+function loadSizeFormFromState(){
+  sizePresetSel.value = sizeSettings.preset;
+  document.getElementById('customW').value = sizeSettings.preset==='custom' ? sizeSettings.w : '';
+  document.getElementById('customH').value = sizeSettings.preset==='custom' ? sizeSettings.h : '';
+  updateSizeHint();
+}
+document.getElementById('saveSizeBtn').addEventListener('click', ()=>{
+  const v = sizePresetSel.value;
+  if(v==='custom'){
+    const w = parseFloat(document.getElementById('customW').value);
+    const h = parseFloat(document.getElementById('customH').value);
+    if(!w || !h){ toast('幅と高さを入力してください'); return; }
+    sizeSettings = { preset:'custom', w, h };
+  } else {
+    const p = SIZE_PRESETS[v];
+    sizeSettings = { preset:v, w:p.w, h:p.h };
+  }
+  toast(`サイズを ${sizeSettings.w}×${sizeSettings.h}mm に設定しました`);
+  saveState();
+});
+
+// ---------- 差出人 ----------
+document.getElementById('saveSenderBtn').addEventListener('click', ()=>{
+  sender = {
+    name: document.getElementById('sName').value.trim(),
+    zip: document.getElementById('sZip').value.trim(),
+    addr1: document.getElementById('sAddr1').value.trim(),
+    addr2: document.getElementById('sAddr2').value.trim(),
+  };
+  saveState();
+  toast('差出人情報を保存しました');
+});
+
+// ---------- ラベル作成 ----------
+function refreshPicker(){
+  fillPickerSelect('pickAddr');
+  fillPickerSelect('pickAddrB');
+  renderFavChips();
+  renderBulkList();
+  const check = document.getElementById('senderCheck');
+  check.textContent = sender.name ? `差出人：${sender.name}（${sender.zip}）` : '⚠ 差出人情報が未登録です。「差出人」タブで登録してください。';
+  check.style.color = sender.name ? '#3C6E52' : '#B1382E';
+}
+
+function fillPickerSelect(id){
+  const sel = document.getElementById(id);
+  const prev = sel.value;
+  sel.innerHTML = '';
+  if(addresses.length===0){
+    sel.innerHTML = '<option value="">先に「宛先」タブで宛先を登録してください</option>';
+    return;
+  }
+  addresses.forEach(a=>{
+    const opt = document.createElement('option');
+    opt.value = a.id;
+    opt.textContent = (a.type==='post' ? '［局留め］' : '［通常］') + a.name;
+    sel.appendChild(opt);
+  });
+  if(prev && addresses.some(a=>a.id===prev)) sel.value = prev;
+}
+
+function renderFavChips(){
+  const wrap = document.getElementById('favChips');
+  const favs = addresses.filter(a=>a.fav);
+  if(favs.length===0){ wrap.innerHTML=''; return; }
+  wrap.innerHTML = '<div style="width:100%;font-size:11px;color:#8a8378;margin-bottom:2px;">⭐ よく送る人（1件目に入ります）</div>';
+  favs.forEach(a=>{
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'fav-chip' + (document.getElementById('pickAddr').value===a.id ? ' active' : '');
+    chip.textContent = a.name;
+    chip.addEventListener('click', ()=>{
+      document.getElementById('pickAddr').value = a.id;
+      renderPreview();
+      renderFavChips();
+    });
+    wrap.appendChild(chip);
+  });
+}
+document.getElementById('pickAddr').addEventListener('change', renderPreview);
+document.getElementById('pickAddrB').addEventListener('change', renderPreview);
+
+let combineMode = false;
+document.getElementById('combineOnBtn').addEventListener('click', ()=>{
+  combineMode = true;
+  document.getElementById('combineOnBtn').classList.add('on');
+  document.getElementById('combineOffBtn').classList.remove('on');
+  document.getElementById('pickAddrBWrap').style.display = 'block';
+  renderPreview();
+});
+document.getElementById('combineOffBtn').addEventListener('click', ()=>{
+  combineMode = false;
+  document.getElementById('combineOffBtn').classList.add('on');
+  document.getElementById('combineOnBtn').classList.remove('on');
+  document.getElementById('pickAddrBWrap').style.display = 'none';
+  renderPreview();
+});
+
+function currentAddr(){
+  const id = document.getElementById('pickAddr').value;
+  return addresses.find(a=>a.id===id);
+}
+function currentAddrB(){
+  const id = document.getElementById('pickAddrB').value;
+  return addresses.find(a=>a.id===id);
+}
+
+function buildLabelLines(a){
+  // 郵便局留め／通常、どちらでも {zip, addr, addrLines, name, note} を返す
+  // addrLines: [{text, bracketGroup}] bracketGroupが同じ値の行同士を、
+  // 大きな一つの〔〕で描画時にまとめて囲む。
+  if(!a) return {zip:'', addr:'', addrLines:[], name:'', note:''};
+  if(a.type==='post'){
+    const lines = [];
+    // 郵便局の住所（任意）
+    if(a.postAddr) lines.push({text:a.postAddr, bracketGroup:null});
+    if(a.postAddr2) lines.push({text:a.postAddr2, bracketGroup:null});
+    // 局名＋局留め
+    lines.push({text:`${a.postName}\u3000局留め`, bracketGroup:null});
+    // 受取人の現住所（任意・複数行あっても大きな1つの〔〕でまとめて囲む）
+    if(a.postShowHome && (a.homeZip || a.homeAddr1)){
+      if(a.homeZip) lines.push({text:`〒${a.homeZip}`, bracketGroup:'home'});
+      if(a.homeAddr1) lines.push({text:a.homeAddr1, bracketGroup:'home'});
+      if(a.homeAddr2) lines.push({text:a.homeAddr2, bracketGroup:'home'});
+    }
+    return {
+      zip: a.postZip,
+      addr: lines.map(l=>l.text).join('\n'),
+      addrLines: lines,
+      name: `${a.name}\u3000${a.honor}`,
+      note: ''
+    };
+  }
+  const normalLines = [{text:a.addr1||'', bracketGroup:null}];
+  if(a.addr2) normalLines.push({text:a.addr2, bracketGroup:null});
+  return {
+    zip: a.zip,
+    addr: `${a.addr1}${a.addr2 ? '\n'+a.addr2 : ''}`,
+    addrLines: normalLines,
+    name: `${a.name}\u3000${a.honor}`,
+    note: ''
+  };
+}
+
+function zipDigitsArray(zip){
+  const digits = (zip||'').replace(/[^0-9]/g,'');
+  const arr = digits.split('');
+  while(arr.length < 7) arr.push('');
+  return arr.slice(0,7);
+}
+
+function zipBoxHtml(zip, small){
+  const d = zipDigitsArray(zip);
+  let html = `<div class="zip-row${small?' small':''}">`;
+  for(let i=0;i<7;i++){
+    html += `<div class="zip-cell">${escapeHtml(d[i]||'')}</div>`;
+    if(i===2) html += `<div class="zip-hyphen">－</div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function addrLinesToPreviewHtml(addrLines){
+  if(!addrLines || addrLines.length===0) return '';
+  let html = '';
+  let i = 0;
+  while(i < addrLines.length){
+    const group = addrLines[i].bracketGroup;
+    if(group){
+      const groupTexts = [];
+      while(i < addrLines.length && addrLines[i].bracketGroup === group){
+        groupTexts.push(addrLines[i].text);
+        i++;
+      }
+      groupTexts.forEach((t,idx)=>{
+        let line = escapeHtml(t);
+        if(idx===0) line = '〔'+line;
+        if(idx===groupTexts.length-1) line = line+'〕';
+        html += line + '\n';
+      });
+    } else {
+      html += escapeHtml(addrLines[i].text) + '\n';
+      i++;
+    }
+  }
+  return html.replace(/\n$/,'');
+}
+
+function fillHalf(el, a){
+  if(!a){ el.innerHTML = '<div class="hint" style="margin:0;">（未選択）</div>'; return; }
+  const to = buildLabelLines(a);
+  el.innerHTML = `
+    <div>
+      <div class="lbl-tag">お届け先 TO</div>
+      ${zipBoxHtml(to.zip, false)}
+      <div class="lbl-addr">${addrLinesToPreviewHtml(to.addrLines)}</div>
+      <div class="lbl-name">${escapeHtml(to.name||'')}</div>
+      ${to.note ? `<div class="lbl-addr" style="margin-top:3px;font-size:9.5px;color:#6b6459;">${escapeHtml(to.note)}</div>` : ''}
+    </div>
+    <div class="lbl-from">
+      <div class="lbl-tag">ご依頼主 FROM</div>
+      ${zipBoxHtml(sender.zip, true)}
+      <div class="lbl-addr" style="font-size:9.5px;">${escapeHtml(sender.addr1||'')}${sender.addr2?'\n'+sender.addr2:''}</div>
+      <div class="lbl-name">${escapeHtml(sender.name||'')}</div>
+    </div>`;
+}
+
+function renderPreview(){
+  const a = currentAddr();
+  const b = currentAddrB();
+  fillHalf(document.getElementById('halfA'), a);
+  document.getElementById('halfB').style.display = combineMode ? 'flex' : 'none';
+  if(combineMode) fillHalf(document.getElementById('halfB'), b);
+  document.getElementById('labelSheet').style.aspectRatio = `${sizeSettings.w}/${sizeSettings.h}`;
+  document.getElementById('sizeNote').textContent = `現在のサイズ：${sizeSettings.w}×${sizeSettings.h}mm（「設定」タブで変更できます）`;
+}
+
+// ---------- PDF出力（1〜2件） ----------
+function withButtonBusy(btn, busyText, fn){
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  btn.textContent = busyText;
+  // disabled状態を画面に反映させてから重い処理を実行する
+  setTimeout(()=>{
+    try{
+      fn();
+    } finally {
+      btn.disabled = false;
+      btn.style.opacity = '';
+      btn.textContent = original;
+    }
+  }, 30);
+}
+
+document.getElementById('makePdfBtn').addEventListener('click', function(){
+  const btn = this;
+  const a = currentAddr();
+  const b = combineMode ? currentAddrB() : null;
+  if(!a){ toast('宛先を選んでください'); return; }
+  if(combineMode && !b){ toast('2件目の宛先を選んでください'); return; }
+  if(!sender.name){ toast('差出人情報を先に登録してください'); return; }
+
+  withButtonBusy(btn, '📄 作成中…', ()=>{
+    try{
+      const W = sizeSettings.w, H = sizeSettings.h;
+      const doc = new jsPDF({unit:'mm', format:[W,H]});
+      const items = combineMode ? [a, b] : [a];
+      const halfH = combineMode ? H/2 : H;
+
+      items.forEach((rec, i)=>{
+        const top = i*halfH;
+        drawLabelBlock(doc, top, halfH, W, buildLabelLines(rec));
+        if(i < items.length-1){
+          doc.setLineDash([1,1]);
+          doc.line(2, top+halfH, W-2, top+halfH);
+          doc.setLineDash([]);
+        }
+      });
+      openGeneratedPdf(doc);
+      toast('新しいタブでPDFを開きました');
+    }catch(err){
+      console.error(err);
+      toast('エラー: ' + err.message);
+    }
+  });
+});
+
+// ---------- まとめて一括PDF出力 ----------
+let bulkSelected = new Set();
+function renderBulkList(){
+  const wrap = document.getElementById('bulkList');
+  if(addresses.length===0){
+    wrap.innerHTML = '<div class="empty">宛先が登録されていません</div>';
+    return;
+  }
+  wrap.innerHTML = '';
+  addresses.forEach(a=>{
+    const row = document.createElement('label');
+    row.className = 'list-item';
+    row.style.cursor = 'pointer';
+    const kindLabel = a.type==='post' ? '<span class="kind kind-post">📮 局留め</span>' : '<span class="kind kind-normal">🏠 通常</span>';
+    row.innerHTML = `
+      <div class="meta">${kindLabel}<strong>${escapeHtml(a.name)}</strong> ${escapeHtml(a.honor)}</div>
+      <div class="actions"><input type="checkbox" data-bulk="${a.id}" ${bulkSelected.has(a.id)?'checked':''} style="width:20px;height:20px;"></div>`;
+    wrap.appendChild(row);
+  });
+  wrap.querySelectorAll('[data-bulk]').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) bulkSelected.add(cb.dataset.bulk); else bulkSelected.delete(cb.dataset.bulk);
+    });
+  });
+}
+document.getElementById('bulkAllBtn').addEventListener('click', ()=>{
+  bulkSelected = new Set(addresses.map(a=>a.id));
+  renderBulkList();
+});
+document.getElementById('bulkNormalBtn').addEventListener('click', ()=>{
+  bulkSelected = new Set(addresses.filter(a=>a.type==='normal').map(a=>a.id));
+  renderBulkList();
+});
+document.getElementById('bulkPostBtn').addEventListener('click', ()=>{
+  bulkSelected = new Set(addresses.filter(a=>a.type==='post').map(a=>a.id));
+  renderBulkList();
+});
+document.getElementById('bulkNoneBtn').addEventListener('click', ()=>{
+  bulkSelected = new Set();
+  renderBulkList();
+});
+document.getElementById('bulkPdfBtn').addEventListener('click', function(){
+  const btn = this;
+  const list = addresses.filter(a=>bulkSelected.has(a.id));
+  if(list.length===0){ toast('宛先を1件以上選んでください'); return; }
+  if(!sender.name){ toast('差出人情報を先に登録してください'); return; }
+
+  withButtonBusy(btn, `📄 ${list.length}件作成中…`, ()=>{
+    try{
+      const W = sizeSettings.w, H = sizeSettings.h;
+      const doc = new jsPDF({unit:'mm', format:[W,H]});
+      list.forEach((rec, i)=>{
+        if(i>0) doc.addPage([W,H]);
+        drawLabelBlock(doc, 0, H, W, buildLabelLines(rec));
+      });
+      openGeneratedPdf(doc);
+      toast(`${list.length}件のPDFを新しいタブで開きました`);
+    }catch(err){
+      console.error(err);
+      toast('エラー: ' + err.message);
+    }
+  });
+});
+
+const PX_PER_MM = 8; // canvas解像度(印刷にも十分な精細さ)
+const FONT_STACK = '"Noto Sans JP","Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif';
+
+function drawZipBoxCanvas(ctx, x, y, zip, cellW, cellH, fontPx){
+  const digits = zipDigitsArray(zip);
+  ctx.lineWidth = Math.max(1, cellH*0.045);
+  ctx.strokeStyle = 'rgb(230,0,18)';
+  ctx.fillStyle = '#141414';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  let cx = x;
+  for(let i=0;i<7;i++){
+    ctx.strokeRect(cx, y, cellW, cellH);
+    if(digits[i]){
+      ctx.font = `${fontPx}px ${FONT_STACK}`;
+      ctx.fillText(digits[i], cx + cellW/2, y + cellH/2 + fontPx*0.05);
+    }
+    cx += cellW;
+    if(i===2){
+      const hyphenW = cellW*0.5;
+      ctx.beginPath();
+      ctx.moveTo(cx + hyphenW*0.15, y + cellH/2);
+      ctx.lineTo(cx + hyphenW*0.85, y + cellH/2);
+      ctx.stroke();
+      cx += hyphenW;
+    }
+  }
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  return cx;
+}
+
+// 1件分のラベル(TO+FROM)をcanvasに描画し、PNGのdataURLを返す。
+// widthMM x heightMM は、そのラベル枠の実寸(mm)。
+// 住所の行を描画。bracketGroupが同じ行同士は、大きな一つの〔〕でまとめて囲む。
+// 大きな括弧を線で描く(幅は高さに関係なく一定に保てるので、枠からはみ出さない)
+function drawBigBracket(ctx, x, top, bottom, notch, opensRight, mm){
+  ctx.beginPath();
+  if(opensRight){
+    // 〔 相当：右側に開く
+    ctx.moveTo(x + notch, top);
+    ctx.lineTo(x, top + notch);
+    ctx.lineTo(x, bottom - notch);
+    ctx.lineTo(x + notch, bottom);
+  } else {
+    // 〕 相当：左側に開く
+    ctx.moveTo(x - notch, top);
+    ctx.lineTo(x, top + notch);
+    ctx.lineTo(x, bottom - notch);
+    ctx.lineTo(x - notch, bottom);
+  }
+  ctx.stroke();
+}
+
+function drawAddrLines(ctx, lines, left, startY, lineHeight, mm, safeRight){
+  let y = startY;
+  let i = 0;
+  while(i < lines.length){
+    const group = lines[i].bracketGroup;
+    if(group){
+      const groupStartY = y;
+      const groupTexts = [];
+      while(i < lines.length && lines[i].bracketGroup === group){
+        ctx.fillText(lines[i].text, left, y);
+        groupTexts.push(lines[i].text);
+        y += lineHeight;
+        i++;
+      }
+      const groupLastLineBaseline = y - lineHeight;
+
+      // グループ内で一番幅が広い行を調べ、括弧を置く左右位置を決める
+      let maxWidth = 0;
+      groupTexts.forEach(t=>{
+        const w = ctx.measureText(t).width;
+        if(w > maxWidth) maxWidth = w;
+      });
+
+      const bracketTop = groupStartY - lineHeight*0.78;
+      const bracketBottom = groupLastLineBaseline + lineHeight*0.28;
+      const notch = mm(1.0);
+
+      // 右側の括弧が用紙のふち(枠線)を超えないよう安全範囲内に収める
+      // 〕の角は左向き(x-notch)に出るので、右端はx自体になる
+      let closeX = left + maxWidth + mm(1.8);
+      if(safeRight && closeX > safeRight){
+        closeX = safeRight;
+      }
+
+      ctx.save();
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = mm(0.35);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      drawBigBracket(ctx, left - mm(1.8), bracketTop, bracketBottom, notch, true, mm);
+      drawBigBracket(ctx, closeX, bracketTop, bracketBottom, notch, false, mm);
+      ctx.restore();
+    } else {
+      ctx.fillText(lines[i].text, left, y);
+      y += lineHeight;
+      i++;
+    }
+  }
+  return y;
+}
+
+function renderLabelToDataUrl(to, widthMM, heightMM){
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(widthMM * PX_PER_MM);
+  canvas.height = Math.round(heightMM * PX_PER_MM);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const mm = v => v * PX_PER_MM;
+
+  // 用紙全体を囲む枠線。感熱プリンター等が「文字がある範囲だけ」を
+  // 用紙サイズと誤認識してしまうのを防ぐため、用紙のふち近くまで
+  // 印刷範囲を示す枠を入れておく。
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = Math.max(1, mm(0.4));
+  const inset = mm(1.2);
+  ctx.strokeRect(inset, inset, canvas.width - inset*2, canvas.height - inset*2);
+
+  const left = mm(5);
+  const right = canvas.width - mm(5);
+  let y = mm(8);
+
+  ctx.fillStyle = 'rgb(177,56,46)';
+  ctx.font = `bold ${mm(3)}px ${FONT_STACK}`;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('お届け先 (TO)', left, y);
+  y += mm(4);
+
+  drawZipBoxCanvas(ctx, left, y, to.zip, mm(4.8), mm(6), mm(3.6));
+  y += mm(6 + 5);
+
+  ctx.fillStyle = 'rgb(30,30,30)';
+  ctx.font = `${mm(3.6)}px ${FONT_STACK}`;
+  y = drawAddrLines(ctx, to.addrLines||[], left, y, mm(5), mm, canvas.width - mm(2.5));
+  y += mm(1);
+  ctx.font = `bold ${mm(4.6)}px ${FONT_STACK}`;
+  ctx.fillStyle = '#000000';
+  ctx.fillText(to.name||'', left, y);
+  y += mm(7);
+
+  if(to.note){
+    ctx.font = `${mm(2.9)}px ${FONT_STACK}`;
+    ctx.fillStyle = 'rgb(100,95,88)';
+    ctx.fillText(to.note, left, y);
+    y += mm(5);
+  }
+
+  ctx.strokeStyle = 'rgb(200,200,200)';
+  ctx.lineWidth = mm(0.2);
+  ctx.beginPath();
+  ctx.moveTo(left, y);
+  ctx.lineTo(right, y);
+  ctx.stroke();
+  y += mm(5);
+
+  ctx.fillStyle = 'rgb(70,90,110)';
+  ctx.font = `${mm(2.7)}px ${FONT_STACK}`;
+  ctx.fillText('ご依頼主 (FROM)', left, y);
+  y += mm(3.2);
+
+  drawZipBoxCanvas(ctx, left, y, sender.zip, mm(3.6), mm(4.4), mm(2.7));
+  y += mm(4.4 + 4);
+
+  ctx.fillStyle = 'rgb(60,60,60)';
+  ctx.font = `${mm(3.1)}px ${FONT_STACK}`;
+  (`${sender.addr1||''}${sender.addr2 ? '\n'+sender.addr2 : ''}`).split('\n').forEach(line=>{
+    if(!line) return;
+    ctx.fillText(line, left, y);
+    y += mm(4.2);
+  });
+  ctx.font = `bold ${mm(3.4)}px ${FONT_STACK}`;
+  ctx.fillStyle = '#000000';
+  ctx.fillText(sender.name||'', left, y+mm(1));
+
+  return canvas.toDataURL('image/png');
+}
+
+// PDFの指定位置(top〜top+h)に、そのラベルの画像を貼り付ける
+function drawLabelBlock(doc, top, h, w, to){
+  const dataUrl = renderLabelToDataUrl(to, w, h);
+  doc.addImage(dataUrl, 'PNG', 0, top, w, h);
+}
+
+// ---------- バックアップ書き出し／読み込み ----------
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const data = JSON.stringify({addresses, sender, sizeSettings}, null, 2);
+  const blob = new Blob([data], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '送付状メーカー_バックアップ.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('バックアップを書き出しました');
+});
+document.getElementById('importBtn').addEventListener('click', ()=>document.getElementById('importFile').click());
+document.getElementById('importFile').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt)=>{
+    try{
+      if(file.size > 5 * 1024 * 1024) throw new Error('backup too large');
+      const data = sanitizeState(JSON.parse(evt.target.result));
+      addresses = data.addresses;
+      sender = data.sender;
+      sizeSettings = data.sizeSettings;
+      renderAddrList();
+      document.getElementById('sName').value = sender.name||'';
+      document.getElementById('sZip').value = sender.zip||'';
+      document.getElementById('sAddr1').value = sender.addr1||'';
+      document.getElementById('sAddr2').value = sender.addr2||'';
+      saveState();
+      toast('データを読み込みました');
+    }catch(err){
+      toast('読み込みに失敗しました');
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+// ---------- 初期表示 ----------
+loadState();
+renderAddrList();
+document.getElementById('sName').value = sender.name||'';
+document.getElementById('sZip').value = sender.zip||'';
+document.getElementById('sAddr1').value = sender.addr1||'';
+document.getElementById('sAddr2').value = sender.addr2||'';
+
+// ---------- PWA: サービスワーカー登録 ----------
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(err=>console.log('SW登録失敗', err));
+  });
+}
+</script>
+</body>
+</html>
