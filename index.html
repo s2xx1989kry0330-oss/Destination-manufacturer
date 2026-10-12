@@ -8,8 +8,6 @@
 <meta name="theme-color" content="#B1382E">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="icon-192.png">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <style>
 :root{
   --paper:#F6F3EC;
@@ -264,6 +262,15 @@ footer.tabbar{
 .toast.toast-error{background:var(--stamp-dark);}
 .pane{display:none;}
 .pane.active{display:block;}
+
+@font-face{
+  font-family:"Noto Sans JP";
+  src:url("./NotoSansJP-Regular.ttf") format("truetype");
+  font-style:normal;
+  font-weight:100 900;
+  font-display:swap;
+}
+
 </style>
 </head>
 <body>
@@ -273,7 +280,7 @@ footer.tabbar{
   <h1>送付状メーカー</h1>
 </header>
 
-<div class="privacy-banner">🔒 宛先・差出人情報は、この端末のブラウザ内に保存されます。Googleログイン・クラウド同期は使用しません。ブラウザのデータ消去や機種変更に備えて、JSONバックアップを保存してください。</div>
+<div class="privacy-banner">🔒 宛先・差出人情報はこの端末のブラウザ内に保存されます。Googleログインやクラウド同期は使用しません。</div>
 
 <nav>
   <button data-pane="addr" class="active">宛先</button>
@@ -283,12 +290,11 @@ footer.tabbar{
 </nav>
 
 <main>
-
-  <!-- ============ 宛先管理 ============ -->
+<!-- ============ 宛先管理 ============ -->
   <section class="pane active" id="pane-addr">
     <div class="card">
       <h2>📷 写真から読み取る <span class="tag">ベータ</span></h2>
-      <div class="hint">宛名が写った写真やスクリーンショットを選ぶと、文字を自動で読み取って下の入力欄に仮入力します。誤読することがあるので、必ず内容を確認してから保存してください。</div>
+      <div class="hint">オフライン版では日本語OCRモデルを同梱していないため、自動読み取りは利用できません。iPhoneの写真アプリで文字を認識・コピーして、下の入力欄に貼り付けてください。</div>
       <input type="file" id="ocrFile" accept="image/*" capture="environment" style="margin-top:10px;">
       <button class="btn btn-outline" id="ocrRunBtn">この画像から読み取る</button>
       <div class="hint" id="ocrStatus"></div>
@@ -466,7 +472,98 @@ footer.tabbar{
 <div class="toast" id="toast"></div>
 
 <script>
-const { jsPDF } = window.jspdf;
+
+// ---------- 内蔵PDF生成（外部ライブラリ不要） ----------
+const jsPDF = class {
+  constructor(opts={}) {
+    this.pages = [];
+    this.pageW = Array.isArray(opts.format) ? Number(opts.format[0]) : 105;
+    this.pageH = Array.isArray(opts.format) ? Number(opts.format[1]) : 148;
+    this._newPage(this.pageW, this.pageH);
+  }
+  _newPage(w,h) { this.pageW = Number(w); this.pageH = Number(h); this.pages.push({w:this.pageW,h:this.pageH,images:[],lines:[]}); this.current=this.pages[this.pages.length-1]; }
+  addPage(format) {
+    const w = Array.isArray(format) ? Number(format[0]) : this.pageW;
+    const h = Array.isArray(format) ? Number(format[1]) : this.pageH;
+    this._newPage(w,h); return this;
+  }
+  addImage(dataUrl, type, x, y, w, h) {
+    this.current.images.push({dataUrl, x:Number(x), y:Number(y), w:Number(w), h:Number(h)});
+    return this;
+  }
+  setLineDash(pattern) { this._dash = Array.isArray(pattern) ? pattern.slice() : []; }
+  line(x1,y1,x2,y2) { this.current.lines.push({x1:+x1,y1:+y1,x2:+x2,y2:+y2,dash:this._dash||[]}); }
+  output(kind) {
+    const blob = this._makePdf();
+    if(kind === 'bloburl' || !kind) return URL.createObjectURL(blob);
+    return blob;
+  }
+  _makePdf() {
+    const enc = new TextEncoder();
+    const objects = [];
+    const reserveObj = () => { objects.push(null); return objects.length; };
+    const setObj = (id, data) => { objects[id-1] = typeof data === 'string' ? enc.encode(data) : data; };
+    const catalogId = reserveObj(), pagesId = reserveObj();
+    const pageRefs = [];
+    const pt = 72/25.4;
+    for (const page of this.pages) {
+      const pageId = reserveObj(), contentId = reserveObj(), imageIds = [], commands = [];
+      let imageIndex = 0;
+      for (const im of page.images) {
+        const b64 = (im.dataUrl.split(',')[1] || '');
+        const bin = atob(b64), bytes = new Uint8Array(bin.length);
+        for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+        const dims = this._jpegDimensions(bytes);
+        const imageId = reserveObj(), name='Im'+(++imageIndex);
+        imageIds.push({id:imageId,name});
+        setObj(imageId, this._streamObject(`/Type /XObject /Subtype /Image /Width ${dims.w} /Height ${dims.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode`, bytes));
+        const x=im.x*pt, y=(page.h-im.y-im.h)*pt, w=im.w*pt, h=im.h*pt;
+        commands.push(`q ${w.toFixed(3)} 0 0 ${h.toFixed(3)} ${x.toFixed(3)} ${y.toFixed(3)} cm /${name} Do Q`);
+      }
+      for(const ln of page.lines) {
+        const x1=ln.x1*pt, x2=ln.x2*pt, y1=(page.h-ln.y1)*pt, y2=(page.h-ln.y2)*pt;
+        commands.push(ln.dash && ln.dash.length ? `[${ln.dash.map(v=>(v*pt).toFixed(2)).join(' ')}] 0 d` : '[] 0 d');
+        commands.push(`0.55 0.55 0.55 RG 0.6 w ${x1.toFixed(3)} ${y1.toFixed(3)} m ${x2.toFixed(3)} ${y2.toFixed(3)} l S`);
+      }
+      setObj(contentId, this._streamObject('', enc.encode(commands.join('\n')+'\n')));
+      const xobj = imageIds.length ? `/XObject << ${imageIds.map(x=>`/${x.name} ${x.id} 0 R`).join(' ')} >>` : '';
+      setObj(pageId, `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${(page.w*pt).toFixed(3)} ${(page.h*pt).toFixed(3)}] /Resources << ${xobj} >> /Contents ${contentId} 0 R >>`);
+      pageRefs.push(pageId);
+    }
+    setObj(pagesId, `<< /Type /Pages /Kids [${pageRefs.map(id=>`${id} 0 R`).join(' ')}] /Count ${pageRefs.length} >>`);
+    setObj(catalogId, `<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
+    const chunks=[enc.encode('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n')];
+    let offset=chunks[0].length; const offsets=[0];
+    for(let i=0;i<objects.length;i++){
+      offsets.push(offset);
+      const head=enc.encode(`${i+1} 0 obj\n`), tail=enc.encode('\nendobj\n');
+      chunks.push(head,objects[i],tail); offset+=head.length+objects[i].length+tail.length;
+    }
+    const xrefOffset=offset;
+    let xref=`xref\n0 ${objects.length+1}\n0000000000 65535 f \n`;
+    for(let i=1;i<offsets.length;i++) xref+=`${String(offsets[i]).padStart(10,'0')} 00000 n \n`;
+    xref+=`trailer\n<< /Size ${objects.length+1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+    chunks.push(enc.encode(xref));
+    return new Blob(chunks,{type:'application/pdf'});
+  }
+  _streamObject(dict, bytes) {
+    const enc=new TextEncoder(), head=enc.encode(`<< ${dict} /Length ${bytes.length} >>\nstream\n`), tail=enc.encode('\nendstream');
+    const out=new Uint8Array(head.length+bytes.length+tail.length);
+    out.set(head,0); out.set(bytes,head.length); out.set(tail,head.length+bytes.length); return out;
+  }
+  _jpegDimensions(bytes) {
+    let i=2;
+    while(i<bytes.length-9){
+      if(bytes[i]!==0xFF){i++;continue;}
+      const marker=bytes[i+1], len=(bytes[i+2]<<8)|bytes[i+3];
+      if([0xC0,0xC1,0xC2,0xC3,0xC5,0xC6,0xC7,0xC9,0xCA,0xCB,0xCD,0xCE,0xCF].includes(marker))
+        return {h:(bytes[i+5]<<8)|bytes[i+6],w:(bytes[i+7]<<8)|bytes[i+8]};
+      if(len<2) break; i+=2+len;
+    }
+    throw new Error('PDF画像のサイズを読み取れませんでした');
+  }
+};
+
 
 // ---------- PDF保存（キャンバスに描画→画像としてPDFへ貼り付け） ----------
 // jsPDFへ日本語フォントを直接埋め込む方式は、グリフ数の多い日本語フォントで
@@ -492,7 +589,7 @@ let sizeSettings = { preset:'clickpost', w:105, h:148 };
 
 const STORAGE_KEY = 'shipping_label_maker_v1';
 
-// ---------- 端末内保存のみ（Googleログイン・クラウド同期なし） ----------
+// ---------- ローカル保存のみ ----------
 function saveState(){
   try{
     localStorage.setItem(STORAGE_KEY, JSON.stringify({addresses, sender, sizeSettings}));
@@ -730,25 +827,16 @@ function delAddr(id){
   toast('削除しました');
 }
 
-// ---------- 写真から読み取る（OCR） ----------
-document.getElementById('ocrRunBtn').addEventListener('click', async ()=>{
+// ---------- OCR（完全オフライン版ではモデル未同梱） ----------
+document.getElementById('ocrRunBtn').addEventListener('click', ()=>{
   const fileInput = document.getElementById('ocrFile');
-  const file = fileInput.files[0];
   const statusEl = document.getElementById('ocrStatus');
-  if(!file){ toast('画像を選んでください'); return; }
-  statusEl.textContent = '読み取り中…（初回はライブラリのダウンロードで少し時間がかかります）';
-  try{
-    const worker = await Tesseract.createWorker('jpn');
-    const { data: { text } } = await worker.recognize(file);
-    await worker.terminate();
-    applyOcrText(text);
-    statusEl.textContent = '読み取り完了。内容を確認して保存してください。';
-  }catch(err){
-    console.error(err);
-    statusEl.textContent = '読み取りに失敗しました。ネット接続を確認するか、手入力してください。';
+  if(!fileInput.files[0]) {
+    toast('画像を選んでください');
+    return;
   }
+  statusEl.textContent = 'このオフライン版には日本語OCRモデルが含まれていません。iPhoneの写真アプリで文字をコピーして入力欄に貼り付けてください。';
 });
-
 function applyOcrText(rawText){
   const lines = rawText.split('\n').map(l=>l.trim()).filter(Boolean);
   const zipMatch = rawText.match(/\d{3}\s*-?\s*\d{4}/);
@@ -1325,13 +1413,13 @@ function renderLabelToDataUrl(to, widthMM, heightMM){
   ctx.fillStyle = '#000000';
   ctx.fillText(sender.name||'', left, y+mm(1));
 
-  return canvas.toDataURL('image/png');
+  return canvas.toDataURL('image/jpeg', 0.96);
 }
 
 // PDFの指定位置(top〜top+h)に、そのラベルの画像を貼り付ける
 function drawLabelBlock(doc, top, h, w, to){
   const dataUrl = renderLabelToDataUrl(to, w, h);
-  doc.addImage(dataUrl, 'PNG', 0, top, w, h);
+  doc.addImage(dataUrl, 'JPEG', 0, top, w, h);
 }
 
 // ---------- バックアップ書き出し／読み込み ----------
