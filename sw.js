@@ -1,4 +1,4 @@
-const CACHE_NAME = 'shipping-label-maker-offline-v1';
+const CACHE_NAME = 'shipping-label-maker-offline-v2';
 const CORE_ASSETS = ['./','./index.html','./manifest.json','./icon-192.png','./icon-512.png','./NotoSansJP-Regular.ttf'];
 self.addEventListener('install', event => {
   event.waitUntil((async () => {

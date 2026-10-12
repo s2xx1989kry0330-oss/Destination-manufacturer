@@ -287,6 +287,7 @@ footer.tabbar{
   <button data-pane="sender">差出人</button>
   <button data-pane="settings">設定</button>
   <button data-pane="make">ラベル作成</button>
+  <button data-pane="icloud">iCloudバックアップ</button>
 </nav>
 
 <main>
@@ -380,12 +381,16 @@ footer.tabbar{
       <button class="btn btn-primary" id="saveSenderBtn">差出人情報を保存する</button>
     </div>
 
+</section>
+
+  <!-- ============ iCloudバックアップ ============ -->
+  <section class="pane" id="pane-icloud">
     <div class="card">
-      <h2>差出人情報のiCloud Driveバックアップ</h2>
-      <div class="hint">差出人情報だけをJSONファイルにして保存します。「iCloud Driveに保存」を押し、共有画面で「ファイルに保存」→「iCloud Drive」を選んでください。GitHub PagesからiCloud Driveへ自動保存することはできないため、必要に応じて手動で保存・更新してください。</div>
-      <button class="btn btn-outline" id="exportSenderBtn">iCloud Driveに保存</button>
+      <h2>iCloudバックアップ</h2>
+      <div class="hint">差出人情報だけをJSONファイルにして保存・復元します。保存ボタンを押した後、iPhoneの共有画面で「ファイルに保存」→「iCloud Drive」を選んでください。WebアプリからiCloud Driveへの自動保存はできないため、手動で保存・更新してください。</div>
+      <button class="btn btn-outline" id="exportSenderBtn">差出人情報をiCloud Driveに保存</button>
       <input type="file" id="importSenderFile" accept="application/json,.json" style="display:none;">
-      <button class="btn btn-outline" id="importSenderBtn" style="margin-top:8px;">iCloud Driveから読み込む</button>
+      <button class="btn btn-outline" id="importSenderBtn" style="margin-top:8px;">iCloud Driveから差出人情報を復元</button>
     </div>
   </section>
 
