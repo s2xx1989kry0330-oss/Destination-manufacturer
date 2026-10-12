@@ -292,13 +292,7 @@ footer.tabbar{
 <main>
 <!-- ============ 宛先管理 ============ -->
   <section class="pane active" id="pane-addr">
-    <div class="card">
-      <h2>📷 写真から読み取る <span class="tag">ベータ</span></h2>
-      <div class="hint">オフライン版では日本語OCRモデルを同梱していないため、自動読み取りは利用できません。iPhoneの写真アプリで文字を認識・コピーして、下の入力欄に貼り付けてください。</div>
-      <input type="file" id="ocrFile" accept="image/*" capture="environment" style="margin-top:10px;">
-      <button class="btn btn-outline" id="ocrRunBtn">この画像から読み取る</button>
-      <div class="hint" id="ocrStatus"></div>
-    </div>
+    
 
     <div class="card">
       <h2>宛先を追加 <span class="tag">通常 / 郵便局留め</span></h2>
@@ -384,6 +378,14 @@ footer.tabbar{
       <label class="field">住所2（建物名など）</label>
       <input type="text" id="sAddr2">
       <button class="btn btn-primary" id="saveSenderBtn">差出人情報を保存する</button>
+    </div>
+
+    <div class="card">
+      <h2>差出人情報のiCloud Driveバックアップ</h2>
+      <div class="hint">差出人情報だけをJSONファイルにして保存します。「iCloud Driveに保存」を押し、共有画面で「ファイルに保存」→「iCloud Drive」を選んでください。GitHub PagesからiCloud Driveへ自動保存することはできないため、必要に応じて手動で保存・更新してください。</div>
+      <button class="btn btn-outline" id="exportSenderBtn">iCloud Driveに保存</button>
+      <input type="file" id="importSenderFile" accept="application/json,.json" style="display:none;">
+      <button class="btn btn-outline" id="importSenderBtn" style="margin-top:8px;">iCloud Driveから読み込む</button>
     </div>
   </section>
 
@@ -827,45 +829,7 @@ function delAddr(id){
   toast('削除しました');
 }
 
-// ---------- OCR（完全オフライン版ではモデル未同梱） ----------
-document.getElementById('ocrRunBtn').addEventListener('click', ()=>{
-  const fileInput = document.getElementById('ocrFile');
-  const statusEl = document.getElementById('ocrStatus');
-  if(!fileInput.files[0]) {
-    toast('画像を選んでください');
-    return;
-  }
-  statusEl.textContent = 'このオフライン版には日本語OCRモデルが含まれていません。iPhoneの写真アプリで文字をコピーして入力欄に貼り付けてください。';
-});
-function applyOcrText(rawText){
-  const lines = rawText.split('\n').map(l=>l.trim()).filter(Boolean);
-  const zipMatch = rawText.match(/\d{3}\s*-?\s*\d{4}/);
-  const zip = zipMatch ? zipMatch[0].replace(/\s/g,'').replace(/^(\d{3})-?(\d{4})$/, '$1-$2') : '';
 
-  // 氏名らしき行（様・御中・行の直前）を推定
-  let nameLine = '';
-  let nameIdx = -1;
-  lines.forEach((l, i)=>{
-    if(/[様御中行]\s*$/.test(l)){ nameLine = l.replace(/[様御中行]\s*$/,'').trim(); nameIdx = i; }
-  });
-
-  // 郵便番号の行・氏名行を除いた残りを住所とみなす
-  const addrLines = lines.filter((l,i)=> i!==nameIdx && !/^\d{3}\s*-?\s*\d{4}/.test(l) && !/〒/.test(l.replace(zip,'')) );
-  const addr1 = addrLines[0] || '';
-  const addr2 = addrLines.slice(1).join(' ') || '';
-
-  if(currentType==='normal'){
-    if(zip) document.getElementById('addrZip').value = zip;
-    if(addr1) document.getElementById('addrAddr1').value = addr1;
-    if(addr2) document.getElementById('addrAddr2').value = addr2;
-    if(nameLine) document.getElementById('addrName').value = nameLine;
-  } else {
-    if(zip) document.getElementById('postZip').value = zip;
-    if(addr1) document.getElementById('postAddr').value = [addr1, addr2].filter(Boolean).join(' ');
-    if(nameLine) document.getElementById('addrName').value = nameLine;
-  }
-  toast('読み取った内容を仮入力しました');
-}
 
 // ---------- サイズ設定 ----------
 const sizePresetSel = document.getElementById('sizePreset');
@@ -1421,6 +1385,84 @@ function drawLabelBlock(doc, top, h, w, to){
   const dataUrl = renderLabelToDataUrl(to, w, h);
   doc.addImage(dataUrl, 'JPEG', 0, top, w, h);
 }
+
+// ---------- 差出人情報だけをiCloud Driveへバックアップ／復元 ----------
+function getSenderBackupData(){
+  return {
+    app: 'shipping-label-maker',
+    type: 'sender-only-backup',
+    version: 1,
+    savedAt: new Date().toISOString(),
+    sender: {
+      name: safeText(sender.name, 200),
+      zip: safeText(sender.zip, 30),
+      addr1: safeText(sender.addr1, 500),
+      addr2: safeText(sender.addr2, 500)
+    }
+  };
+}
+function saveSenderBackupFile(){
+  const data = JSON.stringify(getSenderBackupData(), null, 2);
+  const file = new File([data], '送付状メーカー_差出人情報.json', {type:'application/json'});
+  if(navigator.canShare && navigator.canShare({files:[file]}) && navigator.share){
+    navigator.share({files:[file], title:'差出人情報のバックアップ'})
+      .then(()=>toast('共有画面を開きました。「ファイルに保存」からiCloud Driveを選んでください'))
+      .catch(err=>{ if(err && err.name !== 'AbortError') downloadSenderBackup(data); });
+  } else {
+    downloadSenderBackup(data);
+  }
+}
+function downloadSenderBackup(data){
+  const blob = new Blob([data], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '送付状メーカー_差出人情報.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  toast('ファイルを保存しました。必要に応じて「ファイル」アプリからiCloud Driveへ移動してください');
+}
+document.getElementById('exportSenderBtn').addEventListener('click', ()=>{
+  if(!sender.name && !sender.zip && !sender.addr1 && !sender.addr2){
+    toast('先に差出人情報を登録してください');
+    return;
+  }
+  saveSenderBackupFile();
+});
+document.getElementById('importSenderBtn').addEventListener('click', ()=>document.getElementById('importSenderFile').click());
+document.getElementById('importSenderFile').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt)=>{
+    try{
+      if(file.size > 1024 * 1024) throw new Error('backup too large');
+      const data = JSON.parse(evt.target.result);
+      if(!data || data.app !== 'shipping-label-maker' || data.type !== 'sender-only-backup' ||
+         !data.sender || typeof data.sender !== 'object' || Array.isArray(data.sender)){
+        throw new Error('invalid sender backup');
+      }
+      sender = {
+        name: safeText(data.sender.name, 200),
+        zip: safeText(data.sender.zip, 30),
+        addr1: safeText(data.sender.addr1, 500),
+        addr2: safeText(data.sender.addr2, 500)
+      };
+      document.getElementById('sName').value = sender.name;
+      document.getElementById('sZip').value = sender.zip;
+      document.getElementById('sAddr1').value = sender.addr1;
+      document.getElementById('sAddr2').value = sender.addr2;
+      saveState();
+      toast('差出人情報を読み込みました');
+    }catch(err){
+      toast('差出人情報の読み込みに失敗しました');
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
 
 // ---------- バックアップ書き出し／読み込み ----------
 document.getElementById('exportBtn').addEventListener('click', ()=>{
